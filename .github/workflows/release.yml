@@ -268,7 +268,7 @@ jobs:
         shell: pwsh
         run: |
           cd packaging/msi
-          .\build.ps1 -Version "${{ needs.version.outputs.version }}" -Arch "${{ matrix.arch }}" -BinaryPath "..\..\..\dist\serverkit-agent-windows-${{ matrix.goarch }}.exe" -OutputDir "..\..\..\packages"
+          .\build.ps1 -Version "${{ needs.version.outputs.version }}" -Arch "${{ matrix.arch }}" -BinaryPath "..\..\dist\serverkit-agent-windows-${{ matrix.goarch }}.exe" -OutputDir "..\..\packages"
 
       - name: Upload MSI
         uses: actions/upload-artifact@v4
