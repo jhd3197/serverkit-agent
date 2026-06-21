@@ -2,6 +2,8 @@ name: Agent Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -10,27 +12,66 @@ on:
         description: 'Version to release (e.g., 1.0.0)'
         required: true
         type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
 
 env:
   GO_VERSION: '1.23'
 
 jobs:
+  ci-gate:
+    name: CI Gate
+    uses: ./.github/workflows/ci.yml
+
   version:
     name: Resolve Version
     runs-on: ubuntu-latest
+    needs: ci-gate
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Get version
         id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
-          else
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
             VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION=$(cat VERSION | tr -d '[:space:]')
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Releasing agent version: $VERSION"
+
+      - name: Create and push tag
+        if: github.event_name == 'push' && github.ref_type != 'tag'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+          fi
 
   build-ui:
     name: Build Agent UI
@@ -104,7 +145,6 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          
           # Windows builds use -H windowsgui so Start-menu launches don't
           # flash a console. attachParentConsole() in cmd/agent restores
           # stdio when invoked from PowerShell/cmd for CLI subcommands.
@@ -268,7 +308,7 @@ jobs:
         shell: pwsh
         run: |
           cd packaging/msi
-          .\build.ps1 -Version "${{ needs.version.outputs.version }}" -Arch "${{ matrix.arch }}" -BinaryPath "..\..\dist\serverkit-agent-windows-${{ matrix.goarch }}.exe" -OutputDir "..\..\packages"
+          .\build.ps1 -Version "${{ needs.version.outputs.version }}" -Arch "${{ matrix.arch }}" -BinaryPath "..\..\..\dist\serverkit-agent-windows-${{ matrix.goarch }}.exe" -OutputDir "..\..\..\packages"
 
       - name: Upload MSI
         uses: actions/upload-artifact@v4
@@ -347,16 +387,16 @@ jobs:
           cat checksums.txt
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ needs.version.outputs.version }}
-          name: ServerKit Agent v${{ needs.version.outputs.version }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: ServerKit Agent ${{ needs.version.outputs.tag }}
           draft: false
-          prerelease: false
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
           files: |
             release/*
           body: |
-            ## ServerKit Agent v${{ needs.version.outputs.version }}
+            ## ServerKit Agent ${{ needs.version.outputs.tag }}
 
             ### Downloads
 
@@ -392,7 +432,7 @@ jobs:
 
             **Debian/Ubuntu:**
             ```bash
-            curl -LO https://github.com/${{ github.repository }}/releases/download/v${{ needs.version.outputs.version }}/serverkit-agent_${{ needs.version.outputs.version }}_amd64.deb
+            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/serverkit-agent_${{ needs.version.outputs.version }}_amd64.deb
             sudo dpkg -i serverkit-agent_${{ needs.version.outputs.version }}_amd64.deb
             sudo serverkit-agent register --token "YOUR_TOKEN" --server "https://your-serverkit.com"
             sudo systemctl start serverkit-agent
@@ -400,7 +440,7 @@ jobs:
 
             **RHEL/Fedora:**
             ```bash
-            sudo rpm -i https://github.com/${{ github.repository }}/releases/download/v${{ needs.version.outputs.version }}/serverkit-agent-${{ needs.version.outputs.version }}-1.x86_64.rpm
+            sudo rpm -i https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/serverkit-agent-${{ needs.version.outputs.version }}-1.x86_64.rpm
             sudo serverkit-agent register --token "YOUR_TOKEN" --server "https://your-serverkit.com"
             sudo systemctl start serverkit-agent
             ```
@@ -443,7 +483,7 @@ jobs:
         run: |
           echo "## Agent Release Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** v${{ needs.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Built Binaries" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -467,4 +507,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Release" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Release created at: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "Release created at: https://github.com/${{ github.repository }}/releases/tag/${{ needs.version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY

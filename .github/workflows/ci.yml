@@ -17,6 +17,7 @@ on:
     paths:
       - '**'
       - '.github/workflows/ci.yml'
+  workflow_call:
 
 jobs:
   build-ui:
