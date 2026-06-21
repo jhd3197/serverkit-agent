@@ -1,0 +1,940 @@
+@use './tokens' as *;
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+    margin: 0;
+    height: 100%;
+    width: 100%;
+    background: $bg-body;
+    color: $text-primary;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+button {
+    font-family: inherit;
+}
+
+a {
+    color: $accent;
+    text-decoration: none;
+}
+
+.muted {
+    color: $text-tertiary;
+}
+
+// ─── App shell ───────────────────────────────────────────────────────────
+
+.shell {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+}
+
+.shell__main {
+    overflow-y: auto;
+    background: $bg-body;
+}
+
+// ─── Sidebar ─────────────────────────────────────────────────────────────
+
+.sidebar {
+    background: $bg-sidebar;
+    border-right: 1px solid $border-default;
+    display: flex;
+    flex-direction: column;
+    padding: $space-md;
+    gap: $space-lg;
+}
+
+.sidebar__brand {
+    display: flex;
+    align-items: center;
+    gap: $space-sm;
+    padding: $space-sm 4px;
+}
+
+.sidebar__brand-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: $radius-sm;
+    background: linear-gradient(135deg, $accent, #8b5cf6);
+    display: grid;
+    place-items: center;
+    color: white;
+}
+
+.sidebar__brand-name {
+    font-weight: 600;
+    color: $text-primary;
+    line-height: 1.2;
+}
+
+.sidebar__brand-sub {
+    font-size: 11px;
+    color: $text-tertiary;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    line-height: 1.2;
+    margin-top: 2px;
+}
+
+.sidebar__nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sidebar__link {
+    display: flex;
+    align-items: center;
+    gap: $space-sm;
+    padding: 8px 10px;
+    border-radius: $radius-sm;
+    color: $text-secondary;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 120ms, color 120ms;
+
+    &:hover {
+        background: $bg-hover;
+        color: $text-primary;
+    }
+
+    &--active {
+        background: $bg-elevated;
+        color: $text-primary;
+    }
+}
+
+.sidebar__footer {
+    margin-top: auto;
+    padding: $space-sm 4px 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $space-sm;
+}
+
+.sidebar__version {
+    font-size: 11px;
+    color: $text-tertiary;
+    letter-spacing: 0.04em;
+}
+
+.sidebar__transport {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #c7d2fe;
+    background: #312e81;
+    border: 1px solid #4338ca;
+    padding: 2px 6px;
+    border-radius: $radius-sm;
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────
+
+.page {
+    padding: $space-xl;
+    max-width: 980px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: $space-lg;
+
+    &--full {
+        max-width: none;
+        height: 100vh;
+        padding: $space-lg $space-xl;
+    }
+}
+
+.page__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: $space-md;
+}
+
+.page__title {
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.page__sub {
+    margin: 0;
+    display: flex;
+    gap: $space-sm;
+    align-items: center;
+    font-size: 13px;
+}
+
+// ─── Cards ───────────────────────────────────────────────────────────────
+
+.card {
+    background: $bg-card;
+    border: 1px solid $border-default;
+    border-radius: $radius-md;
+    padding: $space-lg;
+    display: flex;
+    flex-direction: column;
+    gap: $space-md;
+}
+
+.card__title {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: $text-tertiary;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.empty-state {
+    color: $text-secondary;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+// ─── Pills ───────────────────────────────────────────────────────────────
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+
+    &::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+    }
+
+    &--ok {
+        background: rgba($success, 0.12);
+        color: $success;
+    }
+    &--warn {
+        background: rgba($warning, 0.15);
+        color: $warning;
+    }
+    &--muted {
+        background: $bg-hover;
+        color: $text-tertiary;
+    }
+}
+
+// ─── Banner ──────────────────────────────────────────────────────────────
+
+.banner {
+    border-radius: $radius-md;
+    padding: 12px 16px;
+    font-size: 13px;
+    border: 1px solid;
+    display: flex;
+    gap: $space-sm;
+    align-items: flex-start;
+
+    &--warn {
+        background: rgba($warning, 0.08);
+        border-color: rgba($warning, 0.3);
+        color: lighten($warning, 12%);
+    }
+}
+
+// ─── Info rows ───────────────────────────────────────────────────────────
+
+.info-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: $space-md;
+    padding: 10px 0;
+    border-bottom: 1px solid $border-subtle;
+
+    &:last-child {
+        border-bottom: none;
+    }
+}
+
+.info-row__label {
+    font-size: 12px;
+    color: $text-tertiary;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.info-row__value {
+    color: $text-primary;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-align: right;
+    word-break: break-all;
+
+    &--mono {
+        font-family: 'JetBrains Mono', 'Consolas', ui-monospace, monospace;
+        font-size: 12px;
+    }
+}
+
+.copy-btn {
+    background: transparent;
+    border: 1px solid $border-default;
+    color: $text-tertiary;
+    border-radius: $radius-sm;
+    padding: 4px 6px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    transition: color 120ms, border-color 120ms;
+
+    &:hover {
+        color: $text-primary;
+        border-color: $border-active;
+    }
+}
+
+// ─── Metrics ─────────────────────────────────────────────────────────────
+
+.metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: $space-md;
+}
+
+.metric-card {
+    gap: $space-sm;
+}
+
+.metric-card__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.metric-card__value {
+    font-size: 24px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: $text-primary;
+}
+
+.sparkline {
+    margin: 0 -8px;
+
+    &--empty {
+        height: 64px;
+        display: grid;
+        place-items: center;
+        color: $text-tertiary;
+        font-size: 12px;
+    }
+}
+
+// ─── Filter chips ────────────────────────────────────────────────────────
+
+.filter-group {
+    display: flex;
+    gap: 4px;
+}
+
+.chip {
+    background: $bg-card;
+    border: 1px solid $border-default;
+    color: $text-secondary;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    text-transform: capitalize;
+    transition: all 120ms;
+
+    &:hover {
+        color: $text-primary;
+        border-color: $border-active;
+    }
+
+    &--active {
+        background: $bg-elevated;
+        color: $text-primary;
+        border-color: $border-active;
+    }
+}
+
+// ─── Activity timeline ───────────────────────────────────────────────────
+
+.card--padded {
+    padding: 0;
+    overflow: hidden;
+}
+
+.event-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.event {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: $space-md;
+    padding: 14px 18px;
+    border-bottom: 1px solid $border-subtle;
+    align-items: flex-start;
+
+    &:last-child {
+        border-bottom: none;
+    }
+
+    &__icon {
+        width: 32px;
+        height: 32px;
+        border-radius: $radius-sm;
+        display: grid;
+        place-items: center;
+        background: $bg-elevated;
+        color: $text-secondary;
+        flex-shrink: 0;
+    }
+
+    &__body {
+        min-width: 0;
+    }
+
+    &__msg {
+        color: $text-primary;
+        font-size: 13px;
+        line-height: 1.4;
+    }
+
+    &__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 14px;
+        margin-top: 4px;
+        font-size: 11px;
+        color: $text-tertiary;
+    }
+
+    &__meta-item {
+        word-break: break-all;
+
+        strong {
+            font-weight: 600;
+            color: $text-secondary;
+            margin-right: 4px;
+        }
+    }
+
+    &__time {
+        font-size: 11px;
+        color: $text-tertiary;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+
+    &--warn {
+        .event__icon {
+            background: rgba($warning, 0.1);
+            color: $warning;
+        }
+    }
+
+    &--error {
+        .event__icon {
+            background: rgba($danger, 0.1);
+            color: $danger;
+        }
+    }
+}
+
+// ─── Buttons ─────────────────────────────────────────────────────────────
+
+.btn {
+    background: $bg-elevated;
+    color: $text-primary;
+    border: 1px solid $border-default;
+    border-radius: $radius-sm;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 120ms;
+
+    &:hover:not(:disabled) {
+        border-color: $border-active;
+        background: $bg-hover;
+    }
+
+    &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    &--primary {
+        background: $accent;
+        color: white;
+        border-color: $accent;
+
+        &:hover:not(:disabled) {
+            background: $accent-hover;
+            border-color: $accent-hover;
+        }
+    }
+
+    &--danger {
+        color: $danger;
+
+        &:hover:not(:disabled) {
+            border-color: rgba($danger, 0.5);
+            background: rgba($danger, 0.08);
+        }
+    }
+}
+
+// ─── Toolbar (Logs page top strip) ───────────────────────────────────────
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: $space-sm;
+}
+
+.toolbar__spacer {
+    flex: 1;
+}
+
+.search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: $bg-card;
+    border: 1px solid $border-default;
+    border-radius: $radius-sm;
+    padding: 6px 10px;
+    color: $text-tertiary;
+    flex: 0 0 280px;
+
+    input {
+        background: transparent;
+        border: none;
+        outline: none;
+        color: $text-primary;
+        flex: 1;
+        font-size: 13px;
+        font-family: inherit;
+    }
+}
+
+// ─── Log viewer ──────────────────────────────────────────────────────────
+
+.log-viewer {
+    flex: 1;
+    background: $bg-card;
+    border: 1px solid $border-default;
+    border-radius: $radius-md;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', 'Consolas', ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    padding: 10px 12px;
+}
+
+.empty-state--log {
+    padding: 32px 0;
+    text-align: center;
+    color: $text-tertiary;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.logrow {
+    display: grid;
+    grid-template-columns: 92px 60px auto auto 1fr;
+    gap: 8px;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba($border-default, 0.4);
+    align-items: baseline;
+
+    &:last-child {
+        border-bottom: none;
+    }
+
+    &__time {
+        color: $text-tertiary;
+        font-variant-numeric: tabular-nums;
+    }
+
+    &__level {
+        text-transform: uppercase;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        padding: 1px 6px;
+        border-radius: 4px;
+        text-align: center;
+
+        &--info {
+            background: rgba($accent, 0.12);
+            color: $accent-hover;
+        }
+        &--warn {
+            background: rgba($warning, 0.12);
+            color: $warning;
+        }
+        &--error {
+            background: rgba($danger, 0.12);
+            color: $danger;
+        }
+    }
+
+    &__component {
+        color: $text-tertiary;
+        font-size: 11px;
+        white-space: nowrap;
+    }
+
+    &__msg {
+        color: $text-primary;
+        word-break: break-word;
+    }
+
+    &__extras {
+        grid-column: 5;
+        color: $text-tertiary;
+        font-size: 11px;
+
+        > span {
+            margin-right: 12px;
+
+            em {
+                font-style: normal;
+                color: $text-tertiary;
+            }
+            code {
+                color: $text-secondary;
+            }
+        }
+    }
+
+    &--warn .logrow__msg {
+        color: lighten($warning, 12%);
+    }
+    &--error .logrow__msg {
+        color: lighten($danger, 8%);
+    }
+}
+
+.follow-pill {
+    position: fixed;
+    bottom: 24px;
+    right: 32px;
+    background: $accent;
+    color: white;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+
+    &:hover {
+        background: $accent-hover;
+    }
+}
+
+// ─── Actions tab ─────────────────────────────────────────────────────────
+
+.action-group__heading {
+    padding: 14px 18px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: $text-tertiary;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+// ─── Wizard ──────────────────────────────────────────────────────────────
+
+.wizard {
+    width: 100%;
+    height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: $space-xl;
+    background:
+        radial-gradient(1200px 600px at 50% -10%, rgba($accent, 0.08), transparent),
+        $bg-body;
+}
+
+.wizard > .wizard__head + .wizard__body,
+.wizard > .wizard__head,
+.wizard > .wizard__body {
+    width: 100%;
+}
+
+.wizard__head {
+    text-align: center;
+    margin-bottom: $space-lg;
+}
+
+.wizard__brand {
+    width: 56px;
+    height: 56px;
+    border-radius: $radius-md;
+    background: linear-gradient(135deg, $accent, #8b5cf6);
+    color: white;
+    display: grid;
+    place-items: center;
+    margin: 0 auto 16px;
+
+    &--ok {
+        background: linear-gradient(135deg, $success, #34d399);
+    }
+
+    &--err {
+        background: linear-gradient(135deg, $danger, #f87171);
+    }
+}
+
+.wizard__title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+}
+
+.wizard__sub {
+    color: $text-secondary;
+    margin: 0;
+    line-height: 1.55;
+}
+
+.wizard__body {
+    background: $bg-card;
+    border: 1px solid $border-default;
+    border-radius: $radius-lg;
+    padding: $space-xl;
+    display: flex;
+    flex-direction: column;
+    gap: $space-md;
+    max-width: 460px;
+    margin: 0 auto;
+}
+
+.wizard__status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: $text-tertiary;
+    font-size: 13px;
+    padding: $space-sm 0;
+}
+
+// Tabs sit above the wizard body — let the user pick between the
+// connection-string and pair-code entry paths. Keep them visually quiet
+// so the form below remains the focal point.
+.wizard__tabs {
+    display: flex;
+    gap: 4px;
+    max-width: 460px;
+    margin: 0 auto $space-sm;
+    padding: 4px;
+    background: $bg-elevated;
+    border: 1px solid $border-default;
+    border-radius: $radius-md;
+}
+
+.wizard__tab {
+    flex: 1;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: $radius-sm;
+    background: transparent;
+    color: $text-tertiary;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 120ms, color 120ms;
+
+    &:hover {
+        color: $text-primary;
+    }
+
+    &.is-active {
+        background: $bg-card;
+        color: $text-primary;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+    }
+}
+
+.field__input--mono {
+    font-family: 'JetBrains Mono', 'Consolas', ui-monospace, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    resize: vertical;
+    min-height: 80px;
+    word-break: break-all;
+}
+
+// Form fields used by the wizard
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.field__label {
+    font-size: 12px;
+    font-weight: 600;
+    color: $text-secondary;
+}
+
+.field__input {
+    background: $bg-elevated;
+    border: 1px solid $border-default;
+    border-radius: $radius-sm;
+    padding: 10px 12px;
+    color: $text-primary;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 120ms;
+
+    &:focus {
+        border-color: $accent;
+    }
+}
+
+.field__hint {
+    font-size: 12px;
+    color: $text-tertiary;
+}
+
+// Inline copy-able value (pair code, passphrase)
+.copy-value {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: $bg-elevated;
+    border: 1px solid $border-default;
+    border-radius: $radius-md;
+    padding: 14px 16px;
+    font-family: 'JetBrains Mono', 'Consolas', ui-monospace, monospace;
+
+    &__text {
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        color: $text-primary;
+    }
+
+    &--large {
+        .copy-value__text {
+            font-size: 28px;
+            color: $accent-hover;
+            letter-spacing: 0.2em;
+        }
+    }
+}
+
+.pair-display {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    &__label {
+        font-size: 11px;
+        font-weight: 600;
+        color: $text-tertiary;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+}
+
+.btn--large {
+    padding: 12px 20px;
+    font-size: 14px;
+    justify-content: center;
+}
+
+.spin {
+    animation: wizard-spin 0.9s linear infinite;
+}
+
+@keyframes wizard-spin {
+    to { transform: rotate(360deg); }
+}
+
+.action {
+    display: grid;
+    grid-template-columns: 36px 1fr auto;
+    gap: $space-md;
+    padding: 14px 18px;
+    border-top: 1px solid $border-subtle;
+    align-items: center;
+
+    &__icon {
+        width: 36px;
+        height: 36px;
+        border-radius: $radius-sm;
+        background: $bg-elevated;
+        color: $text-secondary;
+        display: grid;
+        place-items: center;
+    }
+
+    &__title {
+        font-size: 13px;
+        font-weight: 500;
+        color: $text-primary;
+    }
+
+    &__desc {
+        font-size: 12px;
+        color: $text-tertiary;
+        margin-top: 2px;
+    }
+
+    &__buttons {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    &__feedback {
+        font-size: 12px;
+
+        &--ok {
+            color: $success;
+        }
+        &--err {
+            color: $danger;
+        }
+    }
+}

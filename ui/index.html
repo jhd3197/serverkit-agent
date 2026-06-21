@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>ServerKit Agent</title>
+        <!--
+          Inline styles in <head> paint immediately, before main.scss loads.
+          Without this the WebView2 host shows a black rectangle for ~500ms
+          while the JS bundle hydrates — users reported it looked like the
+          app had hung. The loading shell matches the dark theme exactly so
+          there's no flash when React replaces it.
+        -->
+        <style>
+            html, body {
+                margin: 0;
+                height: 100%;
+                background: #09090b;
+                color: #f4f4f5;
+                font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            }
+            #root { height: 100%; }
+            .splash {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                height: 100%;
+                flex-direction: column;
+                gap: 12px;
+                color: #a1a1aa;
+            }
+            .splash__spinner {
+                width: 28px;
+                height: 28px;
+                border: 2px solid #27272a;
+                border-top-color: #6366f1;
+                border-radius: 50%;
+                animation: splash-spin 0.8s linear infinite;
+            }
+            .splash__label {
+                font-size: 13px;
+                letter-spacing: 0.02em;
+            }
+            @keyframes splash-spin {
+                to { transform: rotate(360deg); }
+            }
+        </style>
+    </head>
+    <body>
+        <div id="root">
+            <div class="splash">
+                <div class="splash__spinner"></div>
+                <div class="splash__label">Starting ServerKit Agent…</div>
+            </div>
+        </div>
+        <script type="module" src="/src/main.jsx"></script>
+    </body>
+</html>

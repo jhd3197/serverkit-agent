@@ -1,0 +1,103 @@
+name: Agent CI
+
+# Validates the Go agent on every change: it must vet clean, pass its unit
+# tests, and — critically — still COMPILE for every platform it ships on. The
+# cross-compile matrix is what catches "this builds on my machine but breaks
+# the Windows/macOS build" before it reaches a release, which the
+# build-only release workflow did not guard on PRs.
+
+on:
+  push:
+    branches: [dev, main]
+    paths:
+      - '**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - '**'
+      - '.github/workflows/ci.yml'
+
+jobs:
+  build-ui:
+    name: Build Agent UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The agent embeds the desktop UI via //go:embed all:dist, so the
+      # React app must be built into internal/agentui/dist before any
+      # `go` command — otherwise the embed fails with "no matching files".
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+      - name: Build agent UI
+        working-directory: ./ui
+        run: npm ci && npm run build
+      - name: Upload UI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-ui-dist
+          path: internal/agentui/dist/
+          retention-days: 1
+
+  test:
+    name: vet & test (linux)
+    runs-on: ubuntu-latest
+    needs: build-ui
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: agent-ui-dist
+          path: internal/agentui/dist/
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./... -count=1
+
+  build:
+    name: build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    needs: build-ui
+    defaults:
+      run:
+        working-directory: .
+    # darwin is intentionally NOT in this matrix: the tray dependency
+    # (fyne.io/systray) needs the macOS Cocoa toolchain and cannot be
+    # cross-compiled from Linux. It is built on a macOS host at release time
+    # (and is treated as best-effort there). These three targets cover the
+    # real deployment surface — Linux servers and Windows.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: agent-ui-dist
+          path: internal/agentui/dist/
+      - name: go build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build ./...

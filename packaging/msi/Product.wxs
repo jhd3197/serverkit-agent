@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ServerKit Agent - Windows MSI Installer
+  Built with WiX Toolset v5
+
+  Build instructions:
+    1. Install WiX Toolset v5 globally (pin to 5.0.2).
+    2. Install WixToolset.Util.wixext/5.0.2 globally.
+    3. Run: wix build Product.wxs -ext WixToolset.Util.wixext -o serverkit-agent.msi -define Version=1.0.0
+
+  See packaging/msi/build.ps1 for the exact commands used in CI.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <!-- Product definition -->
+  <Package
+    Name="ServerKit Agent"
+    Manufacturer="ServerKit"
+    Version="$(var.Version)"
+    UpgradeCode="E8B7F3A2-4C5D-4E6F-8A9B-0C1D2E3F4A5B"
+    Scope="perMachine">
+
+    <SummaryInformation
+      Description="ServerKit Agent - Remote server management agent"
+      Keywords="ServerKit,Agent,Docker,Management"
+      Manufacturer="ServerKit" />
+
+    <!-- Branding: icon shown in Add/Remove Programs and on the install banner. -->
+    <Icon Id="ServerKitAgentIco" SourceFile="serverkit.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ServerKitAgentIco" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/jhd3197/serverkit-agent" />
+
+    <!-- Upgrade handling.
+         AllowSameVersionUpgrades=yes lets a rebuild of the same version
+         replace itself cleanly — handy during fast iteration where every
+         dev build is "1.6.7" until tagged.
+         Schedule=afterInstallInitialize uninstalls the old product right
+         after the new install begins, before any files are written, so
+         file replacement and ServiceControl Remove run in the right order. -->
+    <MajorUpgrade
+      AllowSameVersionUpgrades="yes"
+      DowngradeErrorMessage="A newer version of [ProductName] is already installed."
+      Schedule="afterInstallInitialize" />
+
+    <!-- Close any user-context serverkit-agent.exe processes (tray, wizard
+         window) before the install validates file usage. The Windows
+         service is handled by ServiceControl below; this covers the
+         non-service instances. Without this, a running tray pins the .exe
+         and Windows defers replacement to next reboot — which is why
+         users were seeing "installed but still old version" reports. -->
+    <util:CloseApplication
+      Id="CloseAgentExe"
+      Target="serverkit-agent.exe"
+      CloseMessage="yes"
+      TerminateProcess="5"
+      RebootPrompt="no"
+      ElevatedCloseMessage="yes" />
+
+    <!-- Media -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Feature -->
+    <Feature Id="ProductFeature" Title="ServerKit Agent" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentRef Id="ConfigComponent" />
+      <ComponentRef Id="LauncherScript" />
+      <ComponentRef Id="TrayAutoStart" />
+      <ComponentRef Id="StartMenuShortcuts" />
+    </Feature>
+
+
+  </Package>
+
+  <!-- Directory Structure -->
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="ServerKit Agent">
+        <Directory Id="LogsFolder" Name="logs" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="ServerKitDataFolder" Name="ServerKit">
+        <Directory Id="AgentDataFolder" Name="Agent" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ServerKitStartMenuFolder" Name="ServerKit Agent" />
+    </StandardDirectory>
+  </Fragment>
+
+  <!-- Components -->
+  <Fragment>
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="MainExecutable" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+        <File Id="ServerKitAgentExe"
+          Source="serverkit-agent.exe"
+          KeyPath="yes" />
+        <!-- Windows Service. Start="auto" so the service auto-starts on
+             boot — once paired, the agent comes up automatically without
+             requiring the user to push "Start Agent" from the tray. Until
+             pairing, it loops in retry-without-config mode harmlessly. -->
+        <ServiceInstall
+          Id="ServiceInstall"
+          Name="ServerKitAgent"
+          DisplayName="ServerKit Agent"
+          Description="ServerKit Agent - Remote server management service"
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal"
+          Arguments="start">
+          <!-- Grant BUILTIN\Users start/stop/query rights on the service.
+               Without this the user-launched wizard and the user-context tray
+               can't issue `sc start ServerKitAgent` after pairing — every
+               post-pair start attempt would silently fail with access denied. -->
+          <util:PermissionEx
+            User="Users"
+            ServiceQueryStatus="yes"
+            ServiceQueryConfig="yes"
+            ServiceChangeConfig="yes"
+            ServiceStart="yes"
+            ServiceStop="yes"
+            ServiceInterrogate="yes"
+            ServiceUserDefinedControl="yes"
+            ServiceEnumerateDependents="yes" />
+        </ServiceInstall>
+        <ServiceControl
+          Id="ServiceControl"
+          Name="ServerKitAgent"
+          Stop="both"
+          Remove="uninstall"
+          Wait="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Configuration. The wizard runs as the user (asInvoker) but writes
+         credentials, config, and the pairing key under ProgramData. Grant
+         BUILTIN\Users modify access on the dir + config file (additive ACL,
+         leaves SYSTEM/Administrators untouched) so the post-pairing save
+         doesn't fail with "Access is denied". -->
+    <Component Id="ConfigComponent" Directory="AgentDataFolder" Guid="C3D4E5F6-A7B8-9012-CDEF-345678901234">
+      <CreateFolder>
+        <util:PermissionEx User="Users" GenericAll="yes" />
+      </CreateFolder>
+      <File Id="ConfigYaml" Source="config.yaml" KeyPath="yes">
+        <util:PermissionEx User="Users" GenericAll="yes" />
+      </File>
+      <RemoveFile Id="RemoveConfig" Name="config.yaml" On="uninstall" />
+      <RemoveFile Id="RemoveKey" Name="agent.key" On="uninstall" />
+      <RemoveFile Id="RemovePairingKey" Name="pairing.key" On="uninstall" />
+      <RemoveFolder Id="RemoveAgentDataFolder" On="uninstall" />
+    </Component>
+
+    <!-- VBS launcher: shortcuts run wscript.exe + this script, which then spawns
+         the unsigned exe. The Microsoft-signed wscript host bypasses the
+         Explorer-launch SmartScreen reputation check that otherwise silently
+         kills the agent process on some Windows configurations. -->
+    <Component Id="LauncherScript" Directory="INSTALLFOLDER" Guid="F1B2A3C4-D5E6-4071-8A8B-9C0D1E2F3A4B">
+      <File Id="LauncherVbs" Source="launcher.vbs" KeyPath="yes" />
+    </Component>
+
+    <!-- Auto-start the desktop app on user login. Goes through the launcher
+         for the same SmartScreen-bypass reason as the Start menu shortcut. -->
+    <Component Id="TrayAutoStart" Directory="INSTALLFOLDER" Guid="E5F6A7B8-C9D0-1234-EF01-567890123456">
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\Microsoft\Windows\CurrentVersion\Run"
+        Name="ServerKitAgent"
+        Type="string"
+        Value="wscript.exe &quot;[INSTALLFOLDER]launcher.vbs&quot;"
+        KeyPath="yes" />
+    </Component>
+
+    <!-- Start Menu shortcut: single entry that opens the desktop app via the
+         signed wscript.exe host so SmartScreen doesn't silently reap us. -->
+    <Component Id="StartMenuShortcuts" Directory="ServerKitStartMenuFolder" Guid="B7C8D9E0-F1A2-3456-7890-ABCDEF123456">
+      <Shortcut Id="AppShortcut"
+        Name="ServerKit Agent"
+        Description="Pair and manage this ServerKit Agent"
+        Target="[System64Folder]wscript.exe"
+        Arguments="&quot;[INSTALLFOLDER]launcher.vbs&quot;"
+        WorkingDirectory="INSTALLFOLDER"
+        Icon="ServerKitAgentIco"
+        IconIndex="0" />
+      <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\ServerKit\Agent"
+        Name="StartMenuShortcuts"
+        Type="integer"
+        Value="1"
+        KeyPath="yes" />
+    </Component>
+  </Fragment>
+
+  <!-- Launch the desktop app at the end of installation so the user is taken
+       straight into the pairing wizard. Impersonate so it inherits the user's
+       session, not the elevated installer. -->
+  <Fragment>
+    <CustomAction Id="LaunchApp"
+      FileRef="ServerKitAgentExe"
+      ExeCommand=""
+      Impersonate="yes"
+      Return="asyncNoWait" />
+
+    <!-- Hard-stop the service before file replacement. ServiceControl
+         already stops the service during a clean upgrade, but if the
+         service is hung or in a weird state, an ungraceful sc.exe stop
+         is a faster, more reliable cleanup. Errors are ignored — if
+         the service doesn't exist (fresh install) or already stopped,
+         that's fine.
+         deferred + impersonate=no = runs in the elevated installer
+         context, which is what you need to control services. -->
+    <CustomAction Id="StopServiceForce"
+      Directory="INSTALLFOLDER"
+      ExeCommand='[System64Folder]sc.exe stop ServerKitAgent'
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <!-- Final safety net: kill any serverkit-agent.exe still running
+         (the service if sc stop didn't take, the tray if CloseApplication
+         missed it, a ghosted wizard window). /T kills the process tree.
+         Must be deferred + elevated to reach SYSTEM-context children. -->
+    <CustomAction Id="TaskkillAgent"
+      Directory="INSTALLFOLDER"
+      ExeCommand='[System64Folder]taskkill.exe /F /IM serverkit-agent.exe /T'
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <InstallExecuteSequence>
+      <!-- Order: stop service → kill any lingering processes → MSI
+           replaces files. Both run only on install/upgrade, not on
+           uninstall (where ServiceControl already handles teardown).
+           InstallFiles is the standard action that writes our exe. -->
+      <Custom Action="StopServiceForce" Before="InstallFiles"
+        Condition="NOT REMOVE" />
+      <Custom Action="TaskkillAgent" After="StopServiceForce"
+        Condition="NOT REMOVE" />
+      <Custom Action="LaunchApp" After="InstallFinalize"
+        Condition="NOT Installed AND NOT REMOVE" />
+    </InstallExecuteSequence>
+  </Fragment>
+
+</Wix>
