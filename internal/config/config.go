@@ -28,6 +28,11 @@ type Config struct {
 	Logging  LoggingConfig  `yaml:"logging"`
 	Update   UpdateConfig   `yaml:"update"`
 	IPC      IPCConfig      `yaml:"ipc"`
+
+	// SourcePath is the resolved path this config was loaded from (set by
+	// Load, not part of the YAML). Used to self-report the agent's config
+	// dir to the panel.
+	SourcePath string `yaml:"-"`
 }
 
 // ServerConfig holds connection settings
@@ -184,6 +189,10 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
+	// Remember where this config actually came from (the --config flag or
+	// the platform default) so the agent can report its real footprint to
+	// the panel instead of the panel assuming installer defaults.
+	cfg.SourcePath = path
 
 	// Load credentials from secure storage. We don't fail loading the
 	// config if creds are missing — that's normal pre-pairing — but we

@@ -213,6 +213,13 @@ type SystemInfo struct {
 	TotalDisk     uint64 `json:"total_disk"`
 	DockerVersion string `json:"docker_version,omitempty"`
 	AgentVersion  string `json:"agent_version"`
+	// The agent's own footprint on this host, self-reported so the panel
+	// never has to assume installer defaults: InstallDir is the running
+	// binary's directory, ConfigDir the directory of the loaded config file
+	// (which also holds agent.key). Target-aware panel UIs (File Manager
+	// quick links) prefer these over convention.
+	InstallDir string `json:"install_dir,omitempty"`
+	ConfigDir  string `json:"config_dir,omitempty"`
 }
 
 // Command actions

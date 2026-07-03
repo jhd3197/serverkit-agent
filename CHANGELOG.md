@@ -16,6 +16,10 @@ awaiting the next release cut. Highlights:
 
 ### Added
 
+- **Self-reported footprint** — `system_info` now includes the agent's real
+  `install_dir` (running binary's directory) and `config_dir` (directory of the
+  loaded config file), so the panel's target-aware UIs (File Manager quick
+  links) reflect the actual install instead of assuming installer defaults.
 - **Native Windows experience** — Windows service host, native first-run setup
   wizard, system tray, dark-mode aware UI, and an MSI installer that opens the
   pairing wizard right after install (no browser or external WebView2 runtime

@@ -689,11 +689,34 @@ func (a *Agent) sendSystemInfo(ctx context.Context) {
 			TotalDisk:     info.TotalDisk,
 			DockerVersion: a.dockerVersion(),
 			AgentVersion:  Version,
+			InstallDir:    a.installDir(),
+			ConfigDir:     a.configDir(),
 		},
 	}
 	if err := a.ws.Send(payload); err != nil {
 		a.log.Debug("system info send failed", "error", err)
 	}
+}
+
+// installDir is the running binary's directory — self-reported so the panel
+// never has to assume the installer's default location. Empty ("") when the
+// executable path can't be resolved; the panel keeps its previous value.
+func (a *Agent) installDir() string {
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		return ""
+	}
+	return filepath.Dir(exe)
+}
+
+// configDir is the directory of the config file this agent was started with
+// (also home to agent.key). Falls back to the platform default when the
+// config didn't come from disk (tests, programmatic construction).
+func (a *Agent) configDir() string {
+	if a.cfg != nil && a.cfg.SourcePath != "" {
+		return filepath.Dir(a.cfg.SourcePath)
+	}
+	return filepath.Dir(config.DefaultConfigPath())
 }
 
 // dockerVersion returns the running Docker daemon version, or "" if
