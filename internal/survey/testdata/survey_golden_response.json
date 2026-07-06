@@ -1,0 +1,24 @@
+{
+  "catalog_version": 1,
+  "probes": {
+    "nginx": {
+      "detected": true,
+      "service": { "active": true, "ports": [80, 443] },
+      "vhosts": [
+        { "server_name": "example.com", "root": "/var/www/example", "upstream": null },
+        { "server_name": "api.example.com", "root": null, "upstream": "http://127.0.0.1:8001" }
+      ]
+    },
+    "apache": { "detected": false },
+    "php-fpm": { "detected": true, "service": { "active": true } },
+    "foreign-panel": { "detected": true, "markers": ["/usr/local/cpanel"] },
+    "databases": {
+      "detected": true,
+      "service": { "active": true },
+      "engines": [ { "name": "mysql", "active": true, "port": 3306 } ]
+    },
+    "crontabs": { "crontabs": [ { "user": "root", "lines": ["0 3 * * * /usr/bin/backup"] } ] },
+    "certs": { "detected": true, "certs": [ { "domain": "example.com", "expires_at": "2026-10-01T00:00:00Z" } ] },
+    "listeners": { "listeners": [ { "port": 80, "proto": "tcp", "process": "nginx" } ] }
+  }
+}

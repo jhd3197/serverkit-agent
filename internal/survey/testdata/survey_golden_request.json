@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "probes": [
+    {
+      "id": "nginx",
+      "kind": "service+config",
+      "detect": { "ports": [80, 443], "units": ["nginx"], "bins": ["nginx"] },
+      "map": { "vhosts": ["/etc/nginx/sites-enabled/*", "/etc/nginx/conf.d/*.conf"] }
+    },
+    {
+      "id": "apache",
+      "kind": "service+config",
+      "detect": { "units": ["apache2", "httpd"], "bins": ["apache2", "httpd"] },
+      "map": { "vhosts": ["/etc/apache2/sites-enabled/*"] }
+    },
+    {
+      "id": "docker",
+      "kind": "service",
+      "detect": { "units": ["docker"], "bins": ["docker"], "ports": [2375, 2376] }
+    },
+    {
+      "id": "databases",
+      "kind": "service",
+      "detect": {
+        "units": ["mysql", "mariadb", "postgresql", "mongod"],
+        "ports": [3306, 5432, 27017]
+      }
+    },
+    {
+      "id": "foreign-panel",
+      "kind": "marker",
+      "detect": { "paths": ["/usr/local/cpanel", "/usr/local/hestia"] }
+    },
+    {
+      "id": "crontabs",
+      "kind": "inventory",
+      "detect": { "paths": ["/var/spool/cron"] },
+      "map": { "crontabs": ["/var/spool/cron/*"] }
+    },
+    {
+      "id": "certs",
+      "kind": "inventory",
+      "detect": { "paths": ["/etc/letsencrypt/live"] },
+      "map": { "certs": ["/etc/letsencrypt/live/*"] }
+    },
+    {
+      "id": "listeners",
+      "kind": "inventory",
+      "detect": {}
+    }
+  ]
+}

@@ -365,6 +365,11 @@ func (a *Agent) registerHandlers() {
 	a.handlers[protocol.ActionAgentUpdate] = a.handleAgentUpdate
 	a.handlers[protocol.ActionAgentRecapabilities] = a.handleAgentRecapabilities
 
+	// Read-only Observe survey (plan 28). Capability `survey` gates the
+	// panel's dispatch; the handler is Linux-only and returns a clear
+	// error off-Linux.
+	a.handlers[protocol.ActionSurveyRead] = a.handleSurveyRead
+
 	// Runtime version managers (Phase 5). pyenv on Linux,
 	// pyenv-win on Windows. Always registered so pages that probe
 	// runtimes:list can tell "manager not installed" from "unknown

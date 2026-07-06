@@ -389,6 +389,13 @@ const (
 	ActionAgentUpdate         = "agent:update"
 	ActionAgentRecapabilities = "agent:recapabilities"
 
+	// survey:read (plan 28) — the read-only Observe "flight". The panel
+	// ships a declarative probe catalog as params; the agent runs it
+	// against a FIXED allowlist of read-only primitives (internal/survey).
+	// Gated on the survey capability; Linux-only in v1. See
+	// docs/AGENT_SURVEY_SPEC.md in the panel repo.
+	ActionSurveyRead = "survey:read"
+
 	// GUI / desktop capture actions. These are the agent-side primitives
 	// that panel extensions (e.g. serverkit-gui) call into. Implementation
 	// lives in agent/internal/gui — kept minimal so plugins composing
