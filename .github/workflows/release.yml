@@ -2,7 +2,12 @@ name: Agent Release
 
 on:
   push:
+    # The repo's default branch is `master` — releasing only on `main`
+    # meant this workflow could never fire (plan 28 #20). Include `master`
+    # (and keep `main` for a future rename). Real releases are cut from the
+    # `v*` tag below; the branch trigger just builds artifacts on merge.
     branches:
+      - master
       - main
     tags:
       - 'v*'

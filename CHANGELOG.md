@@ -12,10 +12,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 Substantial work has landed since the last tagged release (`v1.0.4`) and is
-awaiting the next release cut. Highlights:
+awaiting the next release cut (targeted as **1.2.0**). Highlights:
 
 ### Added
 
+- **Fleet v2 capability pack** — lights up three panel surfaces that were
+  dormant because no shipped agent advertised their capabilities:
+  - **`doctor:probe`** (capability `doctor.probe`) — one batched round trip
+    returning per-unit active state + root-fs disk percent, so a fleet-doctor
+    sweep is a single call per box instead of N `systemd:status` calls plus
+    `system:metrics`. Read-only; unknown units reported absent, never an error.
+  - **`survey:read`** (capability `survey`) — the read-only Observe "flight".
+    The panel ships a declarative probe catalog as untrusted input; the agent
+    runs it against a FIXED allowlist of read-only primitives (file-exists,
+    glob, parse-light, unit-status, socket-list, process-names, cert-meta) and
+    can only combine them — never a shell command, never whole-file contents,
+    never private keys. Size- and time-bounded, partial-safe.
+  - **`systemd.restart` capability** — the restart handler already existed; it
+    is now advertised only when the agent can actually escalate (root or
+    passwordless sudo), so a `NoNewPrivileges` deb install never lights up
+    repair buttons it cannot honor. Response conforms to `{restarted, unit}`.
+  - **`cron:update`** (capability `cron.update`) — edit a crontab entry in
+    place via an atomic whole-table rewrite; disabled state and the
+    `# ServerKit: <name>` comment are preserved. Because ids are
+    content-derived, an edit returns the fresh Entry (new id) for the panel to
+    adopt.
 - **Self-reported footprint** — `system_info` now includes the agent's real
   `install_dir` (running binary's directory) and `config_dir` (directory of the
   loaded config file), so the panel's target-aware UIs (File Manager quick
