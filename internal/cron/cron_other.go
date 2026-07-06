@@ -23,5 +23,8 @@ func (stubManager) List(ctx context.Context) ([]Entry, error)       { return nil
 func (stubManager) Add(ctx context.Context, _ AddRequest) (*Entry, error) {
 	return nil, errUnsupported
 }
-func (stubManager) Remove(ctx context.Context, _ string) error           { return errUnsupported }
-func (stubManager) Toggle(ctx context.Context, _ string, _ bool) error   { return errUnsupported }
+func (stubManager) Update(ctx context.Context, _ UpdateRequest) (*Entry, error) {
+	return nil, errUnsupported
+}
+func (stubManager) Remove(ctx context.Context, _ string) error         { return errUnsupported }
+func (stubManager) Toggle(ctx context.Context, _ string, _ bool) error { return errUnsupported }

@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"strings"
 )
 
@@ -17,46 +16,10 @@ func New() Manager { return &linuxManager{} }
 
 type linuxManager struct{}
 
-// blockedShellPatterns mirror the panel's CronService validation. We
-// re-check on the agent because a malicious or misconfigured panel
-// shouldn't be able to push shell-injection payloads through. Reject
-// anything that turns "X command" into multiple shell-evaluated
-// statements.
-var blockedShellPatterns = []string{";", "&&", "||", "|", "`", "$(", ">", "<", "\n", "\r"}
-
-func validateCommand(cmd string) error {
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" {
-		return fmt.Errorf("command cannot be empty")
-	}
-	for _, p := range blockedShellPatterns {
-		if strings.Contains(cmd, p) {
-			return fmt.Errorf("command contains blocked shell operator %q", p)
-		}
-	}
-	// First token must be an absolute path to a binary — same rule as
-	// the panel-local CronService.
-	first := strings.Fields(cmd)[0]
-	if !strings.HasPrefix(first, "/") {
-		return fmt.Errorf("command must start with an absolute path")
-	}
-	return nil
-}
-
-var scheduleRegex = regexp.MustCompile(`^[\d\*,\-/]+$`)
-
-func validateSchedule(schedule string) error {
-	parts := strings.Fields(schedule)
-	if len(parts) != 5 {
-		return fmt.Errorf("schedule must have 5 fields, got %d", len(parts))
-	}
-	for _, p := range parts {
-		if !scheduleRegex.MatchString(p) {
-			return fmt.Errorf("invalid schedule field %q", p)
-		}
-	}
-	return nil
-}
+// Pure parsing/validation helpers (validateCommand, validateSchedule,
+// parseLine, describeSchedule, applyUpdate) live in cron_parse.go so they
+// are unit-testable on any platform; this file keeps the exec-driven
+// crontab read/write and the Manager wiring.
 
 func (l *linuxManager) Status(ctx context.Context) (*Status, error) {
 	if _, err := exec.LookPath("crontab"); err != nil {
@@ -110,45 +73,6 @@ func (l *linuxManager) writeCrontab(ctx context.Context, content string) error {
 		return fmt.Errorf("crontab install: %w (%s)", err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
-}
-
-// parsedLine is a typed view of one crontab row.
-type parsedLine struct {
-	Raw      string // verbatim text including leading "# " for disabled
-	Schedule string
-	Command  string
-	Enabled  bool
-	IsEntry  bool // false for blank lines / pure comments
-}
-
-// parseLine extracts schedule + command from one crontab row. Pure
-// comments (lines that are # without a 5-field schedule body) are
-// ignored. Disabled entries (# <schedule> <command>) are recognised.
-func parseLine(line string) parsedLine {
-	out := parsedLine{Raw: line}
-	body := strings.TrimSpace(line)
-	if body == "" {
-		return out
-	}
-	enabled := true
-	if strings.HasPrefix(body, "#") {
-		// Could be a pure comment or a disabled entry. Strip the leading
-		// "#" and any whitespace, then try to parse as cron syntax.
-		body = strings.TrimSpace(strings.TrimPrefix(body, "#"))
-		enabled = false
-	}
-	fields := strings.Fields(body)
-	if len(fields) < 6 {
-		return out // not an entry
-	}
-	if validateSchedule(strings.Join(fields[:5], " ")) != nil {
-		return out // first 5 fields don't look like a schedule
-	}
-	out.IsEntry = true
-	out.Schedule = strings.Join(fields[:5], " ")
-	out.Command = strings.Join(fields[5:], " ")
-	out.Enabled = enabled
-	return out
 }
 
 func (l *linuxManager) List(ctx context.Context) ([]Entry, error) {
@@ -222,6 +146,25 @@ func (l *linuxManager) Add(ctx context.Context, req AddRequest) (*Entry, error) 
 	}, nil
 }
 
+// Update edits the entry identified by req.ID via an atomic whole-table
+// rewrite (the pure logic is applyUpdate in cron_parse.go). The id is
+// content-derived, so changing schedule/command yields a NEW id which is
+// returned in the fresh Entry (Decision 4).
+func (l *linuxManager) Update(ctx context.Context, req UpdateRequest) (*Entry, error) {
+	content, err := l.readCrontab(ctx)
+	if err != nil {
+		return nil, err
+	}
+	newContent, entry, err := applyUpdate(content, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := l.writeCrontab(ctx, newContent); err != nil {
+		return nil, err
+	}
+	return entry, nil
+}
+
 func (l *linuxManager) Remove(ctx context.Context, id string) error {
 	content, err := l.readCrontab(ctx)
 	if err != nil {
@@ -280,34 +223,4 @@ func (l *linuxManager) Toggle(ctx context.Context, id string, enabled bool) erro
 		return fmt.Errorf("entry %s not found", id)
 	}
 	return l.writeCrontab(ctx, strings.TrimRight(out.String(), "\n")+"\n")
-}
-
-// describeSchedule returns a short human label for common patterns.
-// Falls back to the raw schedule when nothing matches — matches the
-// behaviour the panel-local CronService already produces, so per-server
-// rows look the same as panel-local rows in the UI.
-func describeSchedule(schedule string) string {
-	switch schedule {
-	case "* * * * *":
-		return "Every minute"
-	case "*/5 * * * *":
-		return "Every 5 minutes"
-	case "*/15 * * * *":
-		return "Every 15 minutes"
-	case "*/30 * * * *":
-		return "Every 30 minutes"
-	case "0 * * * *":
-		return "Hourly"
-	case "0 0 * * *":
-		return "Daily at midnight"
-	case "0 12 * * *":
-		return "Daily at noon"
-	case "0 0 * * 0":
-		return "Weekly (Sunday)"
-	case "0 0 1 * *":
-		return "Monthly (1st)"
-	case "0 0 1 1 *":
-		return "Yearly (Jan 1)"
-	}
-	return schedule
 }

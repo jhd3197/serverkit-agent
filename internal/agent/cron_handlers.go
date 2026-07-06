@@ -45,6 +45,23 @@ func (a *Agent) handleCronAdd(ctx context.Context, params json.RawMessage) (inte
 	return entry, nil
 }
 
+func (a *Agent) handleCronUpdate(ctx context.Context, params json.RawMessage) (interface{}, error) {
+	var req cron.UpdateRequest
+	if err := json.Unmarshal(params, &req); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if req.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	entry, err := a.cron.Update(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	// The id changes when schedule/command change (content-derived); the
+	// panel adopts the returned entry.
+	return entry, nil
+}
+
 func (a *Agent) handleCronRemove(ctx context.Context, params json.RawMessage) (interface{}, error) {
 	var p struct {
 		ID string `json:"id"`

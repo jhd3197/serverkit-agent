@@ -292,6 +292,7 @@ func (a *Agent) registerHandlers() {
 	a.handlers[protocol.ActionCronAdd] = a.handleCronAdd
 	a.handlers[protocol.ActionCronRemove] = a.handleCronRemove
 	a.handlers[protocol.ActionCronToggle] = a.handleCronToggle
+	a.handlers[protocol.ActionCronUpdate] = a.handleCronUpdate
 
 	// Cloudflared commands — same Linux-only/stub pattern. Auth state
 	// (cert.pem present) is exposed via :status, not via the

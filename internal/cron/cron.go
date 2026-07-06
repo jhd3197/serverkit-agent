@@ -51,11 +51,24 @@ type AddRequest struct {
 	Description string `json:"description,omitempty"`
 }
 
+// UpdateRequest edits an existing entry located by ID. Schedule, Command,
+// and Name are optional (pointers): nil means "leave unchanged", a
+// non-nil value replaces it. Because IDs are content-derived, changing the
+// schedule or command changes the ID — Update returns the fresh Entry and
+// the panel/frontend adopt the new ID (Decision 4).
+type UpdateRequest struct {
+	ID       string  `json:"id"`
+	Schedule *string `json:"schedule,omitempty"`
+	Command  *string `json:"command,omitempty"`
+	Name     *string `json:"name,omitempty"`
+}
+
 // Manager is the platform-agnostic interface over the crontab.
 type Manager interface {
 	Status(ctx context.Context) (*Status, error)
 	List(ctx context.Context) ([]Entry, error)
 	Add(ctx context.Context, req AddRequest) (*Entry, error)
+	Update(ctx context.Context, req UpdateRequest) (*Entry, error)
 	Remove(ctx context.Context, id string) error
 	Toggle(ctx context.Context, id string, enabled bool) error
 }
