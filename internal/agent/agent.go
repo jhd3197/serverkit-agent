@@ -345,6 +345,11 @@ func (a *Agent) registerHandlers() {
 	a.handlers[protocol.ActionSystemdLogs] = a.handleSystemdLogs
 	a.handlers[protocol.ActionSystemdLogsFollow] = a.handleSystemdLogsFollow
 
+	// Fleet doctor v2 batched probe (plan 28). Read-only; capability
+	// doctor.probe gates the panel's negotiation. Handler is Linux+systemd
+	// only and returns a clear error off-Linux (systemctlAvailable guard).
+	a.handlers[protocol.ActionDoctorProbe] = a.handleDoctorProbe
+
 	// system:exec is gated on Features.Exec rather than registered
 	// unconditionally — the previous version installed the handler
 	// regardless of the feature flag, which made the flag misleading
