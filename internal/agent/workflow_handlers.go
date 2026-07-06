@@ -327,7 +327,11 @@ func (a *Agent) handleSystemdRestart(ctx context.Context, params json.RawMessage
 		}
 		return nil, fmt.Errorf("systemctl restart %s: %w (%s)", unit, err, out)
 	}
-	return map[string]interface{}{"unit": unit, "action": "restarted"}, nil
+	// Response conforms to the panel's doctor-probe spec
+	// ({restarted: true, unit}); the panel's allowlisted repair path only
+	// reads the wire-level success flag, so "action" is kept for the
+	// existing systemd UI's benefit. See docs/AGENT_DOCTOR_PROBE_SPEC.md.
+	return map[string]interface{}{"restarted": true, "unit": unit, "action": "restarted"}, nil
 }
 
 func (a *Agent) handleSystemdEnable(ctx context.Context, params json.RawMessage) (interface{}, error) {

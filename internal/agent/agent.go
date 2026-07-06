@@ -185,14 +185,18 @@ func New(cfg *config.Config, log *logger.Logger) (*Agent, error) {
 	// from whether NewClient succeeded above; the capability layer
 	// doesn't redo that work.
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Probe sudo first: the capability layer needs the escalation mode to
+	// decide whether write-shaped v2 caps (systemd.restart) can honestly
+	// light up.
+	agent.sudoMode = probeSudoMode(probeCtx)
 	agent.capabilities = capabilities.Probe(
 		probeCtx,
 		log,
 		dockerClient != nil,
 		cfg.Features.FileAccess,
 		cfg.Security.AllowedPaths,
+		string(agent.sudoMode),
 	)
-	agent.sudoMode = probeSudoMode(probeCtx)
 	agent.capabilities.Sudo = string(agent.sudoMode)
 	agent.capabilities.RuntimeManagers = map[string]string{
 		"python": pyenvManagerKind(),

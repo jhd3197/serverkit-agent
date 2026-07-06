@@ -48,17 +48,19 @@ func (a *Agent) handleAgentRecapabilities(ctx context.Context, params json.RawMe
 	// user just ran apt install nginx) are seen by this re-probe.
 	capabilities.ClearPathCache()
 
+	// Re-probe sudo first — the user may have added passwordless sudoers
+	// config since boot, and the capability layer needs the mode to decide
+	// whether systemd.restart can honestly light up.
+	mode := probeSudoMode(probeCtx)
+
 	fresh := capabilities.Probe(
 		probeCtx,
 		a.log,
 		a.docker != nil,
 		a.cfg.Features.FileAccess,
 		a.cfg.Security.AllowedPaths,
+		string(mode),
 	)
-
-	// Re-probe sudo as well — the user may have added passwordless
-	// sudoers config since boot.
-	mode := probeSudoMode(probeCtx)
 	fresh.Sudo = string(mode)
 	// Re-detect runtime version managers; user may have just bootstrapped
 	// pyenv via runtimes:pyenv:bootstrap and is hitting refresh.

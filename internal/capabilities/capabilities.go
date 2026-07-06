@@ -36,7 +36,14 @@ import (
 // Security.AllowedPaths). Surfacing them here lets the panel hide
 // remote-file features on agents that have file access disabled, and
 // show the user which roots they can browse instead of guessing.
-func Probe(ctx context.Context, log *logger.Logger, dockerAvailable bool, fileAccess bool, allowedPaths []string) protocol.CapabilitiesMessage {
+//
+// sudoMode is the agent's privilege-escalation mode ("root",
+// "passwordless", "unavailable"), probed separately by the agent and
+// passed in so the v2 fleet capabilities can tell the truth: a
+// write-shaped capability like systemd.restart must only light up when
+// the agent can actually escalate. Callers probe sudo first and hand the
+// string here (see agent.go / recapabilities.go).
+func Probe(ctx context.Context, log *logger.Logger, dockerAvailable bool, fileAccess bool, allowedPaths []string, sudoMode string) protocol.CapabilitiesMessage {
 	caps := protocol.Capabilities{}
 
 	// Docker — the agent's own client is the source of truth. If the
@@ -73,6 +80,27 @@ func Probe(ctx context.Context, log *logger.Logger, dockerAvailable bool, fileAc
 	// open the edge's WireGuard UDP port (#10). Linux-only.
 	caps["firewall"] = probeFirewall()
 
+	// Fleet v2 capabilities (plan 28). These are the literal flat keys
+	// the panel checks with an EXACT lookup (agent_registry.has_capability
+	// treats dotted keys as opaque strings — see FLEET_CONTRACT / the two
+	// spec docs). They gate three panel surfaces that are dormant until an
+	// agent advertises them: batched fleet-doctor probe, allowlisted
+	// remote repair, and the read-only server survey.
+	//
+	//   doctor.probe / survey — read-only; need Linux + systemd (reuse the
+	//                            same probe the panel's checks compose on).
+	//   systemd.restart       — a WRITE capability, so it is honest only
+	//                            when the agent can ALSO escalate. A
+	//                            deb-installed NoNewPrivileges agent has
+	//                            sudo "unavailable" and must NOT light up
+	//                            repair buttons it can never honor.
+	//   cron.update           — wherever the cron surface is manageable.
+	systemdOK := caps["systemd"]
+	caps["doctor.probe"] = systemdOK
+	caps["survey"] = systemdOK
+	caps["systemd.restart"] = systemdRestartCapable(systemdOK, sudoMode)
+	caps["cron.update"] = caps["cron"]
+
 	// Language runtimes — best-effort version probes. A missing key
 	// means "not installed"; an empty string means "installed but
 	// `--version` parse failed" so the panel can still light up the
@@ -106,6 +134,10 @@ func Probe(ctx context.Context, log *logger.Logger, dockerAvailable bool, fileAc
 			"cloudflared", caps["cloudflared"],
 			"wireguard", caps["wireguard"],
 			"firewall", caps["firewall"],
+			"doctor.probe", caps["doctor.probe"],
+			"survey", caps["survey"],
+			"systemd.restart", caps["systemd.restart"],
+			"cron.update", caps["cron.update"],
 			"runtimes", runtimes,
 		)
 	}
@@ -125,6 +157,19 @@ func Probe(ctx context.Context, log *logger.Logger, dockerAvailable bool, fileAc
 		Runtimes:      runtimes,
 		AllowedPaths:  advertisedPaths,
 	}
+}
+
+// systemdRestartCapable reports whether the write-shaped systemd.restart
+// capability should be advertised: systemd must be present AND the agent
+// able to escalate privileges (running as root, or passwordless sudo).
+// A deb-installed NoNewPrivileges agent probes sudo "unavailable" and so
+// must never advertise it — the panel would otherwise render a repair
+// button the agent can't honor. sudoMode literals mirror agent.SudoMode
+// ("root" / "passwordless" / "unavailable"); compared as strings here to
+// avoid an import cycle (the agent package imports this one). Split out so
+// the gating is unit-testable without a live systemd/sudo host.
+func systemdRestartCapable(systemdPresent bool, sudoMode string) bool {
+	return systemdPresent && (sudoMode == "root" || sudoMode == "passwordless")
 }
 
 // probeCloudflared — true if cloudflared is on PATH. The capability

@@ -304,6 +304,14 @@ const (
 	ActionSystemdLogs         = "systemd:logs"
 	ActionSystemdLogsFollow   = "systemd:logs_follow"
 
+	// Fleet doctor v2 batched probe (plan 28). One round trip returning
+	// the health facts the panel's fleet doctor needs (per-unit active
+	// state + root-fs disk percent) so a sweep is a single call per box
+	// instead of N systemd:status calls + system:metrics. Read-only;
+	// gated on the doctor.probe capability. See
+	// docs/AGENT_DOCTOR_PROBE_SPEC.md in the panel repo.
+	ActionDoctorProbe = "doctor:probe"
+
 	// Runtime version managers (Phase 5). Currently scoped to Python
 	// via pyenv on Linux and pyenv-win on Windows. Install/Bootstrap
 	// stream on a job channel like packages.
@@ -324,6 +332,11 @@ const (
 	ActionCronAdd    = "cron:add"
 	ActionCronRemove = "cron:remove"
 	ActionCronToggle = "cron:toggle"
+	// cron:update (plan 28) — atomic whole-table rewrite of one entry.
+	// The agent's ids are content-derived (sha256(schedule\0command)), so
+	// an update CHANGES the id; the handler returns the fresh Entry and
+	// the panel/frontend adopt it. Gated on the cron.update capability.
+	ActionCronUpdate = "cron:update"
 
 	// Cloudflared actions — manage Cloudflare named tunnels via the
 	// cloudflared CLI. The agent never stores Cloudflare API tokens;
