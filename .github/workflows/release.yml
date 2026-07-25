@@ -362,7 +362,11 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [build-binaries, build-deb, build-rpm, build-msi, build-docker]
+    # `version` is in this list because the steps below read
+    # needs.version.outputs.tag — outputs are only readable from jobs named in
+    # `needs`, so without it tag_name resolved to empty and action-gh-release
+    # refused with "GitHub Releases requires a tag".
+    needs: [version, build-binaries, build-deb, build-rpm, build-msi, build-docker]
     permissions:
       contents: write
 
