@@ -220,6 +220,7 @@ jobs:
         with:
           name: serverkit-agent-deb-${{ matrix.arch }}
           path: packages/*.deb
+          if-no-files-found: error
           retention-days: 5
 
   # Build .rpm packages
@@ -261,13 +262,17 @@ jobs:
         run: |
           chmod +x packaging/rpm/build.sh
           cd packaging/rpm
-          ./build.sh "${{ needs.version.outputs.version }}" "${{ matrix.rpmarch }}" "../../dist/serverkit-agent-linux-${{ matrix.goarch }}" "../../../packages"
+          ./build.sh "${{ needs.version.outputs.version }}" "${{ matrix.rpmarch }}" "../../dist/serverkit-agent-linux-${{ matrix.goarch }}" "../../packages"
 
       - name: Upload RPM package
         uses: actions/upload-artifact@v4
         with:
           name: serverkit-agent-rpm-${{ matrix.rpmarch }}
           path: packages/*.rpm
+          # Fail rather than warn: v1.2.0 shipped with no RPMs at all because
+          # the output path above wrote them outside the workspace, this step
+          # found nothing, and warning-only kept the job green.
+          if-no-files-found: error
           retention-days: 5
 
   # Build Windows MSI installers (one per architecture)
@@ -320,6 +325,7 @@ jobs:
         with:
           name: serverkit-agent-msi-${{ matrix.arch }}
           path: packages/*.msi
+          if-no-files-found: error
           retention-days: 5
 
   # Build Docker image
