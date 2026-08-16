@@ -1,4 +1,16 @@
 #Requires -RunAsAdministrator
+#
+# ---------------------------------------------------------------------------
+# CANONICAL SOURCE: jhd3197/serverkit-agent -> install.ps1
+#
+# This file is VENDORED into the panel repo at ServerKit/scripts/install.ps1,
+# which is the copy the panel serves at GET /api/v1/servers/install.ps1 (it has
+# to exist on the panel's own disk, so the panel cannot simply link to it).
+#
+# Edit it in the agent repo, then re-vendor with ServerKit's
+# scripts/sync-agent-installers.sh. Do not patch one copy only -- see the note
+# in install.sh; ServerKit's nightly CI fails on any drift.
+# ---------------------------------------------------------------------------
 <#
 .SYNOPSIS
     ServerKit Agent Installation Script for Windows
@@ -47,6 +59,8 @@ $InstallDir = "$env:ProgramFiles\ServerKit"
 $ConfigDir = "$env:ProgramData\ServerKit\Agent"
 $LogDir = "$env:ProgramData\ServerKit\Agent\logs"
 $ServiceName = "ServerKitAgent"
+# The agent has its own repo and its own vX.Y.Z releases; it no longer ships
+# from the panel monorepo.
 $GitHubRepo = "jhd3197/serverkit-agent"
 $AgentBinary = "serverkit-agent.exe"
 
@@ -85,7 +99,10 @@ function Get-LatestVersion {
         try {
             $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$GitHubRepo/releases" -Method Get
             foreach ($release in $releases) {
-                if ($release.tag_name -match "^v(.+)$") {
+                # Plain vX.Y.Z in the dedicated agent repo (it used to be
+                # `agent-v*` back when the agent shipped from the panel monorepo).
+                # Requiring a digit skips the malformed release tagged just "v".
+                if ($release.tag_name -match "^v(\d.*)$") {
                     $script:Version = $Matches[1]
                     Write-ColorOutput "Latest version: v$Version" "Info"
                     return

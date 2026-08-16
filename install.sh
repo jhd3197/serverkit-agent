@@ -2,8 +2,26 @@
 #
 # ServerKit Agent Installation Script
 #
+# ---------------------------------------------------------------------------
+# CANONICAL SOURCE: jhd3197/serverkit-agent -> install.sh
+#
+# This file is VENDORED into the panel repo at ServerKit/scripts/install.sh,
+# which is the copy the panel serves at GET /api/v1/servers/install.sh (it has
+# to exist on the panel's own disk, so the panel cannot simply link to it).
+#
+# Edit it in the agent repo, then re-vendor with ServerKit's
+# scripts/sync-agent-installers.sh. Do not patch one copy only: they silently
+# drifted once already, and the panel spent that entire time serving an
+# installer that downloaded from a tag scheme that no longer existed
+# (ServerKit issue #101). ServerKit's nightly CI now fails on any drift.
+# ---------------------------------------------------------------------------
+#
 # Usage:
-#   curl -fsSL https://your-serverkit.com/install.sh | sudo bash -s -- --token "TOKEN" --server "URL"
+#   curl -fsSL https://your-serverkit.com/install.sh -o /tmp/serverkit-agent-install.sh \
+#     && sudo bash /tmp/serverkit-agent-install.sh --token "TOKEN" --server "URL"
+#
+# Deliberately not `curl … | sudo bash`: a pipeline reports bash's exit status,
+# not curl's, so a failed download exits 0 having installed nothing (issue #101).
 #
 # Options:
 #   --token, -t     Registration token (required)
@@ -35,6 +53,10 @@ INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/serverkit-agent"
 LOG_DIR="/var/log/serverkit-agent"
 SERVICE_USER="serverkit-agent"
+# The agent publishes its own releases from its own repo, tagged plain `vX.Y.Z`.
+# It used to live in the panel monorepo under `agent-v*` tags, and this script
+# was never updated when it moved -- so every download 404'd against a tag scheme
+# that no longer exists anywhere (ServerKit issue #101).
 GITHUB_REPO="jhd3197/serverkit-agent"
 AGENT_BINARY="serverkit-agent"
 
@@ -43,6 +65,11 @@ TOKEN=""
 SERVER_URL=""
 SERVER_NAME=""
 VERSION="latest"
+
+# Version injected by the panel when it serves this script (the panel already
+# resolves the latest agent release for its update endpoints). Empty means
+# discover the version via the GitHub API in get_latest_version().
+SERVERKIT_AGENT_VERSION=""
 
 print_banner() {
     echo
@@ -82,7 +109,8 @@ show_help() {
     echo "  --help, -h      Show this help message"
     echo ""
     echo "Example:"
-    echo "  curl -fsSL https://your-serverkit.com/install.sh | sudo bash -s -- \\"
+    echo "  curl -fsSL https://your-serverkit.com/install.sh -o /tmp/serverkit-agent-install.sh \\"
+    echo "    && sudo bash /tmp/serverkit-agent-install.sh \\"
     echo "    --token 'sk_reg_xxx' \\"
     echo "    --server 'https://your-serverkit.com'"
     exit 0
@@ -92,18 +120,22 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case $1 in
             --token|-t)
+                [[ $# -ge 2 ]] || log_error "Option $1 requires a value"
                 TOKEN="$2"
                 shift 2
                 ;;
             --server|-s)
+                [[ $# -ge 2 ]] || log_error "Option $1 requires a value"
                 SERVER_URL="$2"
                 shift 2
                 ;;
             --name|-n)
+                [[ $# -ge 2 ]] || log_error "Option $1 requires a value"
                 SERVER_NAME="$2"
                 shift 2
                 ;;
             --version|-v)
+                [[ $# -ge 2 ]] || log_error "Option $1 requires a value"
                 VERSION="$2"
                 shift 2
                 ;;
@@ -172,34 +204,87 @@ check_dependencies() {
 }
 
 get_latest_version() {
-    if [[ "$VERSION" == "latest" ]]; then
-        log_info "Fetching latest version..."
-        # Portable parse: `grep -P` is a GNU extension, absent on BusyBox/Alpine
-        # and on macOS, where this line failed outright. The `[0-9]` also skips
-        # the malformed release tagged literally "v" that a version-less release
-        # run once published (see .github/workflows/release.yml's version guard).
-        VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases" \
-            | grep -o '"tag_name": *"v[0-9][^"]*"' | head -1 \
-            | sed -e 's/.*"v//' -e 's/"$//')
-
-        if [[ -z "$VERSION" ]]; then
-            log_error "Failed to fetch latest version"
-        fi
-        log_info "Latest version: v${VERSION}"
+    if [[ "$VERSION" != "latest" ]]; then
+        return 0
     fi
+
+    # The panel injects the version it already resolved when serving this
+    # script — use it and keep GitHub out of the enrollment path entirely.
+    if [[ -n "$SERVERKIT_AGENT_VERSION" ]]; then
+        VERSION="$SERVERKIT_AGENT_VERSION"
+        log_info "Using panel-resolved version: v${VERSION}"
+        return 0
+    fi
+
+    log_info "Fetching latest version..."
+
+    # Every release in the agent repo is an agent release, so the first vX.Y.Z
+    # tag is the one we want. The paging kept from the monorepo era costs one
+    # extra request at most and covers a repo with many pre-release tags.
+    #
+    # The `[0-9]` is load-bearing: the repo carries a malformed release literally
+    # tagged "v", which would otherwise parse to an empty VERSION and send the
+    # download at .../releases/download/v/serverkit-agent--linux-amd64.tar.gz.
+    local page releases
+    VERSION=""
+    for page in 1 2 3; do
+        releases=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=100&page=${page}") || break
+        VERSION=$(printf '%s\n' "$releases" | grep -o '"tag_name": *"v[0-9][^"]*"' | head -1 | sed -e 's/.*"v//' -e 's/"$//') || true
+        [[ -n "$VERSION" ]] && break
+        # A page with no tags at all means the release list is exhausted.
+        printf '%s' "$releases" | grep -q '"tag_name"' || break
+    done
+
+    if [[ -z "$VERSION" ]]; then
+        log_error "Failed to fetch latest version"
+    fi
+    log_info "Latest version: v${VERSION}"
+}
+
+# Verify the downloaded archive against the release's checksums.txt.
+# Best-effort when checksums.txt is unavailable (older releases); a present-
+# but-mismatching checksum is a hard failure.
+verify_checksum() {
+    local tmp_dir="$1" asset_name="$2"
+    local checksums_url="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/checksums.txt"
+
+    if ! command -v sha256sum &> /dev/null; then
+        log_warn "sha256sum not available — skipping checksum verification"
+        return 0
+    fi
+
+    if ! curl -fsSL "$checksums_url" -o "${tmp_dir}/checksums.txt"; then
+        log_warn "Could not download checksums.txt — skipping verification"
+        return 0
+    fi
+
+    if ! grep -q "$asset_name" "${tmp_dir}/checksums.txt"; then
+        log_warn "checksums.txt has no entry for ${asset_name} — skipping verification"
+        return 0
+    fi
+
+    if ! (cd "$tmp_dir" && sha256sum -c <(grep "$asset_name" checksums.txt) >/dev/null 2>&1); then
+        rm -rf "$tmp_dir"
+        log_error "Checksum verification FAILED for ${asset_name} — aborting install"
+    fi
+
+    log_success "Checksum verified"
 }
 
 download_agent() {
     log_info "Downloading ServerKit Agent v${VERSION}..."
 
-    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/serverkit-agent-${VERSION}-linux-${ARCH}.tar.gz"
+    ASSET_NAME="serverkit-agent-${VERSION}-linux-${ARCH}.tar.gz"
+    DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/${ASSET_NAME}"
     TMP_DIR=$(mktemp -d)
-    ARCHIVE="${TMP_DIR}/serverkit-agent.tar.gz"
+    ARCHIVE="${TMP_DIR}/${ASSET_NAME}"
 
     if ! curl -fsSL "$DOWNLOAD_URL" -o "$ARCHIVE"; then
         rm -rf "$TMP_DIR"
         log_error "Failed to download agent from: $DOWNLOAD_URL"
     fi
+
+    verify_checksum "$TMP_DIR" "$ASSET_NAME"
 
     # Extract binary
     log_info "Extracting agent..."
@@ -220,12 +305,24 @@ create_user() {
         log_info "User $SERVICE_USER already exists"
     else
         log_info "Creating service user: $SERVICE_USER"
-        useradd -r -s /bin/false -d /nonexistent "$SERVICE_USER"
+        if command -v useradd &> /dev/null; then
+            useradd -r -s /bin/false -d /nonexistent "$SERVICE_USER"
+        elif command -v adduser &> /dev/null; then
+            # Alpine/busybox ships adduser instead of useradd
+            adduser -S -D -H -s /bin/false "$SERVICE_USER"
+        else
+            log_error "Cannot create user: neither useradd nor adduser found"
+        fi
     fi
 
     # Add to docker group if it exists
     if getent group docker > /dev/null 2>&1; then
-        usermod -aG docker "$SERVICE_USER"
+        if command -v usermod &> /dev/null; then
+            usermod -aG docker "$SERVICE_USER"
+        else
+            # busybox equivalent of usermod -aG
+            addgroup "$SERVICE_USER" docker
+        fi
         log_info "Added $SERVICE_USER to docker group"
     fi
 }
@@ -377,5 +474,13 @@ main() {
     start_service
     print_success
 }
+
+# Sourcing this file (e.g. from scripts/test/test_agent_install.sh) defines
+# every function above for unit testing without running an install. Piped
+# execution (curl | bash) has no BASH_SOURCE[0], so only a real `source`
+# takes the early return.
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ "${BASH_SOURCE[0]}" != "$0" ]; then
+    return 0
+fi
 
 main "$@"

@@ -17,10 +17,14 @@ A lightweight, cross-platform agent for remote server management. Connects to a 
 ### Linux (One-liner)
 
 ```bash
-curl -fsSL https://your-serverkit.com/install.sh | sudo bash -s -- \
+curl -fsSL https://your-serverkit.com/install.sh -o /tmp/serverkit-agent-install.sh \
+  && sudo bash /tmp/serverkit-agent-install.sh \
   --token "sk_reg_your_token" \
   --server "https://your-serverkit.com"
 ```
+
+> Download-then-run rather than `curl … | sudo bash`: a pipeline reports bash's
+> exit status, not curl's, so a failed download exits 0 having installed nothing.
 
 ### Windows (PowerShell as Administrator)
 
