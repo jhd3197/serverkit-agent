@@ -174,8 +174,13 @@ check_dependencies() {
 get_latest_version() {
     if [[ "$VERSION" == "latest" ]]; then
         log_info "Fetching latest version..."
-        VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases" | \
-            grep -oP '"tag_name": "v\K[^"]+' | head -1)
+        # Portable parse: `grep -P` is a GNU extension, absent on BusyBox/Alpine
+        # and on macOS, where this line failed outright. The `[0-9]` also skips
+        # the malformed release tagged literally "v" that a version-less release
+        # run once published (see .github/workflows/release.yml's version guard).
+        VERSION=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases" \
+            | grep -o '"tag_name": *"v[0-9][^"]*"' | head -1 \
+            | sed -e 's/.*"v//' -e 's/"$//')
 
         if [[ -z "$VERSION" ]]; then
             log_error "Failed to fetch latest version"
