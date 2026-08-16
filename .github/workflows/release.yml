@@ -60,6 +60,16 @@ jobs:
           else
             VERSION=$(cat VERSION | tr -d '[:space:]')
           fi
+          # Refuse to release a version-less build. An empty workflow_dispatch
+          # input (or an empty VERSION file) used to sail straight through here
+          # and tag the release literally "v" -- one such release is still in the
+          # list, and it makes every naive "latest tag" parser resolve an empty
+          # version and build download URLs like /releases/download/v/…
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::Refusing to release: resolved version '$VERSION' is not X.Y.Z" >&2
+            exit 1
+          fi
+
           TAG="v$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"

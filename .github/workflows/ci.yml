@@ -66,6 +66,13 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./... -count=1
+      # install.sh is canonical here and vendored into the ServerKit panel repo,
+      # which serves it at GET /api/v1/servers/install.sh. It shipped for a long
+      # time pointing at release coordinates that no longer existed, because
+      # nothing in this repo tested it (ServerKit issue #101). No network, no
+      # root — it sources the script and stubs curl.
+      - name: install.sh unit tests
+        run: bash scripts/test/test_agent_install.sh
 
   build:
     name: build (${{ matrix.goos }}/${{ matrix.goarch }})
