@@ -1,0 +1,21 @@
+# Line-ending policy.
+#
+# Without this, git's autocrlf checks install.sh out with CRLF on Windows, and a
+# bash script with CRLF line endings fails at the shebang ("bad interpreter") or
+# on the first quoted string. The panel repo vendors install.sh and has always
+# pinned *.sh to LF; this repo owns the file now, so the rule belongs here too.
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.exe  binary
+*.msi  binary
