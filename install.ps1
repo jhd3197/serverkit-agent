@@ -34,7 +34,9 @@
     .\install.ps1 -Token "sk_reg_xxx" -Server "https://your-serverkit.com"
 
 .EXAMPLE
-    irm https://your-serverkit.com/install.ps1 | iex; Install-ServerKitAgent -Token "sk_reg_xxx" -Server "https://your-serverkit.com"
+    # The panel serves this at /api/v1/servers/install.ps1, not at the domain
+    # root -- the root of a ServerKit domain is the panel UI.
+    irm https://your-serverkit.com/api/v1/servers/install.ps1 | iex; Install-ServerKitAgent -Token "sk_reg_xxx" -Server "https://your-serverkit.com"
 
 .NOTES
     Requires Administrator privileges.

@@ -16,8 +16,10 @@
 # (ServerKit issue #101). ServerKit's nightly CI now fails on any drift.
 # ---------------------------------------------------------------------------
 #
-# Usage:
-#   curl -fsSL https://your-serverkit.com/install.sh -o /tmp/serverkit-agent-install.sh \
+# Usage (the panel serves this at /api/v1/servers/install.sh, not at the domain
+# root -- the root of a ServerKit domain is the panel UI):
+#   curl -fsSL https://your-serverkit.com/api/v1/servers/install.sh \
+#     -o /tmp/serverkit-agent-install.sh \
 #     && sudo bash /tmp/serverkit-agent-install.sh --token "TOKEN" --server "URL"
 #
 # Deliberately not `curl … | sudo bash`: a pipeline reports bash's exit status,
@@ -109,7 +111,8 @@ show_help() {
     echo "  --help, -h      Show this help message"
     echo ""
     echo "Example:"
-    echo "  curl -fsSL https://your-serverkit.com/install.sh -o /tmp/serverkit-agent-install.sh \\"
+    echo "  curl -fsSL https://your-serverkit.com/api/v1/servers/install.sh \\"
+    echo "    -o /tmp/serverkit-agent-install.sh \\"
     echo "    && sudo bash /tmp/serverkit-agent-install.sh \\"
     echo "    --token 'sk_reg_xxx' \\"
     echo "    --server 'https://your-serverkit.com'"
