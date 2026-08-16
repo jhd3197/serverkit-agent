@@ -8,14 +8,14 @@ name: Agent CI
 
 on:
   push:
-    # The repo's default branch is `master`; `main`/`dev` are kept so a
-    # future branch rename doesn't silently disable CI (plan 28 #20).
-    branches: [master, main, dev]
+    # `master` was renamed to `main` to match the panel repo. Both were already
+    # listed here so the rename could not silently disable CI (plan 28 #20).
+    branches: [main, dev]
     paths:
       - '**'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [master, main, dev]
+    branches: [main, dev]
     paths:
       - '**'
       - '.github/workflows/ci.yml'
