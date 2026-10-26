@@ -323,6 +323,12 @@ func (a *Agent) registerHandlers() {
 	a.handlers[protocol.ActionFirewallAllowPort] = a.handleFirewallAllowPort
 	a.handlers[protocol.ActionFirewallDenyPort] = a.handleFirewallDenyPort
 
+	// SSH authorized_keys — Linux-only, same stub pattern; the `ssh.keys`
+	// capability gates callers.
+	a.handlers[protocol.ActionSSHKeysAdd] = a.handleSSHKeysAdd
+	a.handlers[protocol.ActionSSHKeysRemove] = a.handleSSHKeysRemove
+	a.handlers[protocol.ActionSSHKeysList] = a.handleSSHKeysList
+
 	// Phase 4 primitives — packages, systemd, exec. Registered
 	// unconditionally so non-Linux agents return a clear error rather
 	// than "unknown action"; the capability probe gates the panel's
