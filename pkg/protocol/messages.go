@@ -379,6 +379,14 @@ const (
 	ActionFileWrite = "file:write"
 	ActionFileList  = "file:list"
 
+	// SSH authorized_keys actions — add/remove/list one key line for a
+	// local user. Exists so the panel (and extensions like serverkit-faro
+	// access grants) can install a key for any user without file:write,
+	// which is jailed to allowed_paths and can't chown. Linux-only.
+	ActionSSHKeysAdd    = "ssh:keys:add"
+	ActionSSHKeysRemove = "ssh:keys:remove"
+	ActionSSHKeysList   = "ssh:keys:list"
+
 	// Terminal/PTY actions
 	ActionTerminalCreate = "terminal:create"
 	ActionTerminalInput  = "terminal:input"

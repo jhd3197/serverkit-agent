@@ -48,7 +48,16 @@ type packageManager struct {
 	install   []string // args before package name(s)
 	remove    []string
 	list      []string
+	listBin   string // binary for list when it differs from bin
 	queryFlag string // arg pattern for "is X installed"
+}
+
+// listCommand returns the binary and args that print installed packages.
+func (pm *packageManager) listCommand() (string, []string) {
+	if pm.listBin != "" {
+		return pm.listBin, pm.list
+	}
+	return pm.bin, pm.list
 }
 
 // detectPackageManager returns the active manager on PATH or an error
@@ -59,7 +68,7 @@ func detectPackageManager() (*packageManager, error) {
 		return nil, errors.New("packages:* is Linux-only")
 	}
 	candidates := []*packageManager{
-		{bin: "apt-get", install: []string{"install", "-y"}, remove: []string{"remove", "-y"}, list: []string{"list", "--installed"}, queryFlag: "dpkg"},
+		{bin: "apt-get", install: []string{"install", "-y"}, remove: []string{"remove", "-y"}, list: []string{"-W", "-f=${Package}\t${Version}\n"}, listBin: "dpkg-query", queryFlag: "dpkg"},
 		{bin: "dnf", install: []string{"install", "-y"}, remove: []string{"remove", "-y"}, list: []string{"list", "installed"}, queryFlag: "rpm"},
 		{bin: "yum", install: []string{"install", "-y"}, remove: []string{"remove", "-y"}, list: []string{"list", "installed"}, queryFlag: "rpm"},
 		{bin: "apk", install: []string{"add"}, remove: []string{"del"}, list: []string{"info"}, queryFlag: "apk"},
@@ -200,9 +209,10 @@ func (a *Agent) handlePackagesListInstalled(ctx context.Context, params json.Raw
 	}
 	cctx, cancel := context.WithTimeout(ctx, packageOpTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, pm.bin, pm.list...).Output()
+	bin, args := pm.listCommand()
+	out, err := exec.CommandContext(cctx, bin, args...).Output()
 	if err != nil {
-		return nil, fmt.Errorf("%s %s: %w", pm.bin, strings.Join(pm.list, " "), err)
+		return nil, fmt.Errorf("%s %s: %w", bin, strings.Join(args, " "), err)
 	}
 	// Don't try to parse — formats vary too much. Ship the raw output
 	// and let downstream tooling pick what it cares about.

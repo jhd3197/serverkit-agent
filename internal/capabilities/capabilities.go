@@ -80,6 +80,11 @@ func Probe(ctx context.Context, log *logger.Logger, dockerAvailable bool, fileAc
 	// open the edge's WireGuard UDP port (#10). Linux-only.
 	caps["firewall"] = probeFirewall()
 
+	// SSH keys — the agent can manage a user's authorized_keys. Needs
+	// Linux and root (directly or via passwordless sudo), since the keys
+	// live in other users' homes.
+	caps["ssh.keys"] = runtime.GOOS == "linux" && (sudoMode == "root" || sudoMode == "passwordless")
+
 	// Fleet v2 capabilities (plan 28). These are the literal flat keys
 	// the panel checks with an EXACT lookup (agent_registry.has_capability
 	// treats dotted keys as opaque strings — see FLEET_CONTRACT / the two
@@ -134,6 +139,7 @@ func Probe(ctx context.Context, log *logger.Logger, dockerAvailable bool, fileAc
 			"cloudflared", caps["cloudflared"],
 			"wireguard", caps["wireguard"],
 			"firewall", caps["firewall"],
+			"ssh.keys", caps["ssh.keys"],
 			"doctor.probe", caps["doctor.probe"],
 			"survey", caps["survey"],
 			"systemd.restart", caps["systemd.restart"],
