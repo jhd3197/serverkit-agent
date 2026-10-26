@@ -11,8 +11,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Substantial work has landed since the last tagged release (`v1.0.4`) and is
-awaiting the next release cut (targeted as **1.2.0**). Highlights:
+## [1.3.0] - 2026-10-26
+
+### Added
+
+- **`ssh:keys:add` / `ssh:keys:remove` / `ssh:keys:list`** (capability
+  `ssh.keys`, Linux with root or passwordless sudo) — manage one user's
+  `authorized_keys` without handing the panel raw file writes. Keys are
+  matched by key material, written atomically, serialized host-wide, and a
+  failed read is never mistaken for an empty file. Optional key options,
+  `expiry-time=` on OpenSSH 8.2+, and creating the login user. Used by the
+  Faro extension's access grants.
+- **Pair straight to ServerKit Cloud** — an agent on a machine with no panel
+  can enrol with Cloud directly and become a server once approved.
+
+### Fixed
+
+- `packages:list` on Debian/Ubuntu reads the installed set with
+  `dpkg-query` (apt-get has no list subcommand, so it exited 100).
+
+## [1.2.0] - 2026-07-25
 
 ### Added
 
