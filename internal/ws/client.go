@@ -295,6 +295,9 @@ func (c *Client) authenticate() error {
 		"timestamp":      timestamp,
 		"signature":      signature,
 	}
+	if lvl := c.auth.PermissionLevel(); lvl != "" {
+		authData["permission_level"] = lvl
+	}
 
 	c.log.Debug("Sending authentication event")
 
@@ -736,7 +739,9 @@ func (c *Client) Send(msg interface{}) error {
 func (c *Client) SendHeartbeat(metrics protocol.HeartbeatMetrics) error {
 	msg := protocol.HeartbeatMessage{
 		Message: protocol.NewMessage(protocol.TypeHeartbeat, auth.GenerateNonce()),
-		Metrics: metrics,
+		Metrics:         metrics,
+		PermissionLevel: metrics.PermissionLevel,
+		ServiceChecks:   metrics.ServiceChecks,
 	}
 	return c.Send(msg)
 }
