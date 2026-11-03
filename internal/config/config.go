@@ -96,6 +96,9 @@ type SecurityConfig struct {
 	AllowedPaths    []string      `yaml:"allowed_paths"`
 	BlockedCommands []string      `yaml:"blocked_commands"`
 	MaxExecTimeout  time.Duration `yaml:"max_exec_timeout"`
+	// MaxConcurrentCommands bounds commands running at once; extra
+	// commands are rejected with "agent busy". Default 8.
+	MaxConcurrentCommands int `yaml:"max_concurrent_commands"`
 }
 
 // LoggingConfig holds logging settings
@@ -190,6 +193,8 @@ func Default() *Config {
 			AllowedPaths:    defaultAllowedPaths(),
 			BlockedCommands: []string{},
 			MaxExecTimeout:  5 * time.Minute,
+
+			MaxConcurrentCommands: 8,
 		},
 		Logging: LoggingConfig{
 			Level:      "info",

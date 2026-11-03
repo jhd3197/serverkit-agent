@@ -55,13 +55,13 @@ func (a *Agent) handleCloudflaredTunnelRoute(ctx context.Context, params json.Ra
 // the panel can subscribe and surface the auth URL the moment
 // cloudflared prints it. The flow:
 //
-//   1. Agent spawns `cloudflared tunnel login` with stdout/stderr piped
-//   2. First line containing https://dash.cloudflare.com/argotunnel?...
-//      is reported as a 'status' event with auth_url
-//   3. Panel renders a clickable button; user opens URL → authorises
-//   4. cloudflared writes cert.pem and exits
-//   5. Agent emits 'done' with the cert path; panel can refresh
-//      capabilities to flip the Authenticated badge.
+//  1. Agent spawns `cloudflared tunnel login` with stdout/stderr piped
+//  2. First line containing https://dash.cloudflare.com/argotunnel?...
+//     is reported as a 'status' event with auth_url
+//  3. Panel renders a clickable button; user opens URL → authorises
+//  4. cloudflared writes cert.pem and exits
+//  5. Agent emits 'done' with the cert path; panel can refresh
+//     capabilities to flip the Authenticated badge.
 //
 // 15-minute hard ceiling (cloudflared blocks waiting for the OAuth
 // callback) — long enough for a coffee break, short enough that a
