@@ -286,6 +286,41 @@ cannot be reused on another machine.
 - Certificate validation is enforced in production
 - Replay attack protection via timestamps and nonces
 
+## Permission levels
+
+Each agent runs at one of three levels. The level lives only in the local
+`config.yaml` (`permissions.level`); no message from the panel can change it.
+A config without the key (older installs) behaves as `full`.
+
+| Level | What the agent does |
+|-------|---------------------|
+| `monitor` | Report-only. Opens **no** inbound channel (no websocket/poll session, subscriptions or terminal). Sends signed outbound `POST /api/v1/agent/report` with metrics and service checks (web server, PHP-FPM, databases, disk/CPU/memory). |
+| `protect` | Bidirectional, but runs only security actions: `firewall:allow_port`, `firewall:deny_port`, `firewall:status`, `firewall:allow_ip`, `firewall:deny_ip`, `fail2ban:status\|ban\|unban`, `crowdsec:decisions:list\|ban\|unban`, `cloudflare:origin_lock:status\|apply\|remove`. All other actions are rejected and logged. |
+| `full` | Everything the agent supports (docker, files, terminal, packages, systemd, ...). |
+
+```bash
+# choose at install time (menu on a terminal; non-interactive defaults to full)
+sudo bash install.sh --token ... --server ... --level protect
+
+# inspect or change later, as root on the server (asks you to type the level)
+serverkit-agent permissions show
+sudo serverkit-agent permissions set monitor
+```
+
+Re-running the installer with a different `--level` on an installed agent is
+refused unless `--reconfigure` is passed. Windows: `install.ps1 -Level monitor`.
+
+The Cloudflare origin lock needs `ufw` installed and active; it only manages
+the web ports (default 80/443), never port 22. Optional custom service checks:
+
+```yaml
+monitor:
+  interval: 60s
+  checks:
+    - {name: redis, type: tcp, target: "127.0.0.1:6379"}
+    - {name: worker, type: systemd, target: myapp-worker}
+```
+
 ## Systemd Service (Linux)
 
 The installation script automatically creates a systemd service:

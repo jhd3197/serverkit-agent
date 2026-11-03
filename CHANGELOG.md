@@ -11,6 +11,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Permission levels** (`monitor` < `protect` < `full`), set in
+  `permissions.level` of `config.yaml` and changeable only locally. A config
+  without the key keeps today's behaviour (`full`).
+  - `monitor`: report-only. No websocket/poll session, no subscriptions, no
+    terminal; the agent only sends signed `POST /api/v1/agent/report`
+    requests (HMAC-SHA256 over `timestamp.nonce.sha256(body)`, random nonce
+    per request) with metrics and service checks.
+  - `protect`: only security actions run: `firewall:allow_port`,
+    `firewall:deny_port`, `firewall:status`, `firewall:allow_ip`,
+    `firewall:deny_ip`, `fail2ban:status|ban|unban`,
+    `crowdsec:decisions:list|ban|unban`,
+    `cloudflare:origin_lock:status|apply|remove`. Everything else is
+    rejected (and recorded in the Activity log) before any handler runs;
+    handlers above the level are not even registered.
+- New security handlers (fixed argv, no shell, strict input validation). The
+  Cloudflare origin lock restricts 80/443 to Cloudflare's published ranges via
+  `ufw` (embedded fallback list, live refresh when reachable), never touches
+  SSH, and refuses when `ufw` is missing or inactive.
+- Service checks (web server, PHP-FPM, MySQL/MariaDB/PostgreSQL, disk/CPU/
+  memory thresholds, optional `monitor.checks`) sent with heartbeats and
+  monitor reports. Registration, auth and heartbeat payloads carry
+  `permission_level`.
+- `serverkit-agent permissions show|set <level>` (root, typed confirmation or
+  `--yes`, restarts the service); `register --level`; `install.sh --level`
+  / `--reconfigure` / `--yes` and `install.ps1 -Level` / `-Reconfigure` /
+  `-Yes`. The level appears in `status` and the IPC status.
+
+### Changed
+
+- Installing without `--level` shows a menu on a terminal; non-interactive
+  installs default to `full` with a loud warning. Re-running the installer
+  with a different level on an installed agent is refused without
+  `--reconfigure`.
+
 ## [1.3.0] - 2026-10-26
 
 ### Added
