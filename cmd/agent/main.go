@@ -83,6 +83,7 @@ When run without a subcommand on Windows, opens the desktop application
 	rootCmd.AddCommand(updateCmd())
 	rootCmd.AddCommand(trayCmd())
 	rootCmd.AddCommand(consoleCmd())
+	rootCmd.AddCommand(permissionsCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -105,6 +106,7 @@ func registerCmd() *cobra.Command {
 	var serverURL string
 	var name string
 	var connStr string
+	var level string
 
 	cmd := &cobra.Command{
 		Use:   "register",
@@ -134,12 +136,12 @@ func registerCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("invalid connection string: %w", err)
 				}
-				return runRegister(decoded.Token, decoded.URL, name)
+				return runRegister(decoded.Token, decoded.URL, name, level)
 			}
 			if token == "" || serverURL == "" {
 				return fmt.Errorf("provide either --connection-string or both --token and --server")
 			}
-			return runRegister(token, serverURL, name)
+			return runRegister(token, serverURL, name, level)
 		},
 	}
 
@@ -149,6 +151,7 @@ func registerCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&token, "token", "t", "", "registration token (use with --server; or set SERVERKIT_REGISTRATION_TOKEN to keep it out of the process arg list)")
 	cmd.Flags().StringVarP(&serverURL, "server", "s", "", "ServerKit server URL (use with --token)")
 	cmd.Flags().StringVarP(&name, "name", "n", "", "display name for this server")
+	cmd.Flags().StringVar(&level, "level", "", "permission level: monitor, protect or full (menu on a terminal; full otherwise)")
 
 	return cmd
 }
@@ -422,7 +425,7 @@ func agentMainLoop(parentCtx context.Context) error {
 	return nil
 }
 
-func runRegister(token, serverURL, name string) error {
+func runRegister(token, serverURL, name, levelFlag string) error {
 	log := logger.New(config.LoggingConfig{Level: "info"})
 
 	log.Info("Registering agent with ServerKit",
@@ -431,14 +434,23 @@ func runRegister(token, serverURL, name string) error {
 
 	// Load or create config
 	cfg, err := config.Load(cfgFile)
+	var existing *config.Config
 	if err != nil {
 		// Create new config if doesn't exist
 		cfg = config.Default()
+	} else {
+		existing = cfg
 	}
+
+	level, err := resolveRegisterLevel(levelFlag, existing, stdinIsTTY(), os.Stdin, os.Stdout)
+	if err != nil {
+		return err
+	}
+	cfg.Permissions.Level = string(level)
 
 	// Register with server
 	reg := agent.NewRegistration(log)
-	result, err := reg.Register(serverURL, token, name)
+	result, err := reg.Register(serverURL, token, name, string(level))
 	if err != nil {
 		return fmt.Errorf("registration failed: %w", err)
 	}
@@ -479,6 +491,7 @@ func runRegister(token, serverURL, name string) error {
 	fmt.Println("\nAgent registered successfully!")
 	fmt.Printf("  Agent ID: %s\n", result.AgentID)
 	fmt.Printf("  Name:     %s\n", result.Name)
+	printLevelBanner(os.Stdout, level)
 	fmt.Println("\nStart the agent with: serverkit-agent start")
 
 	return nil
@@ -503,6 +516,11 @@ func showStatus() error {
 	fmt.Printf("  Agent ID:   %s\n", cfg.Agent.ID)
 	fmt.Printf("  Agent Name: %s\n", cfg.Agent.Name)
 	fmt.Printf("  Server:     %s\n", cfg.Server.URL)
+	if lvl, err := cfg.PermissionLevel(); err != nil {
+		fmt.Printf("  Permission: INVALID (%v)\n", err)
+	} else {
+		fmt.Printf("  Permission: %s (change: serverkit-agent permissions set <level>)\n", lvl)
+	}
 
 	// TODO: Check if actually connected
 	// This would require checking a PID file or socket
