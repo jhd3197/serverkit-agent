@@ -291,7 +291,7 @@ func (p *pairer) handleConnectionString(w http.ResponseWriter, r *http.Request) 
 func (p *pairer) runConnectionStringFlow(ctx context.Context, panelURL, token string) {
 	reg := agent.NewRegistration(p.log)
 
-	result, err := reg.Register(panelURL, token, "")
+	result, err := reg.Register(panelURL, token, "", "")
 	if err != nil {
 		p.failConnString("register: " + err.Error())
 		return

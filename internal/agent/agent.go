@@ -28,6 +28,9 @@ import (
 	"github.com/jhd3197/serverkit-agent/internal/jobs"
 	"github.com/jhd3197/serverkit-agent/internal/logger"
 	"github.com/jhd3197/serverkit-agent/internal/metrics"
+	"github.com/jhd3197/serverkit-agent/internal/permissions"
+	"github.com/jhd3197/serverkit-agent/internal/servicecheck"
+	"github.com/jhd3197/serverkit-agent/internal/transport/report"
 	"github.com/jhd3197/serverkit-agent/internal/terminal"
 	"github.com/jhd3197/serverkit-agent/internal/transport"
 	"github.com/jhd3197/serverkit-agent/internal/transport/poll"
@@ -57,6 +60,14 @@ type Agent struct {
 	events      *events.Store
 	gui         *gui.SDK
 	jobs        *jobs.Registry
+
+	// level is the local permission level (config only; never changed by
+	// panel messages). Enforced centrally in handleCommand/handleSubscribe.
+	level permissions.Level
+	// checker produces service checks for heartbeats / monitor reports.
+	checker *servicecheck.Checker
+	// reporter is non-nil only in monitor mode (outbound-only link).
+	reporter *report.Reporter
 
 	// pkgLock serializes package-manager mutations (install / remove /
 	// upgrade / update_cache) inside a single agent so two concurrent
@@ -103,7 +114,12 @@ type CommandHandler func(ctx context.Context, params json.RawMessage) (interface
 // New creates a new Agent
 func New(cfg *config.Config, log *logger.Logger) (*Agent, error) {
 	// Create authenticator
+	level, err := cfg.PermissionLevel()
+	if err != nil {
+		return nil, fmt.Errorf("invalid permissions.level in config: %w", err)
+	}
 	authenticator := auth.New(cfg.Agent.ID, cfg.Auth.APIKey, cfg.Auth.APISecret)
+	authenticator.SetPermissionLevel(string(level))
 
 	// Build the transport: a Manager wrapping the WS client (primary) and
 	// a polling client (fallback for tunnels that mangle WS frames). The
@@ -115,7 +131,7 @@ func New(cfg *config.Config, log *logger.Logger) (*Agent, error) {
 
 	// Create Docker client if enabled
 	var dockerClient *docker.Client
-	if cfg.Features.Docker {
+	if cfg.Features.Docker && level == permissions.Full {
 		var err error
 		dockerClient, err = docker.NewClient(cfg.Docker, log)
 		if err != nil {
@@ -132,7 +148,7 @@ func New(cfg *config.Config, log *logger.Logger) (*Agent, error) {
 
 	// Create terminal manager if exec is enabled
 	var termManager *terminal.Manager
-	if cfg.Features.Exec {
+	if cfg.Features.Exec && level == permissions.Full {
 		termManager = terminal.NewManager()
 		log.Info("Terminal/PTY support enabled")
 	}
@@ -169,6 +185,8 @@ func New(cfg *config.Config, log *logger.Logger) (*Agent, error) {
 		events:        eventStore,
 		gui:           gui.New(log),
 		jobs:          jobs.NewRegistry(64),
+		level:         level,
+		checker:       servicecheck.New(cfg.Monitor.Checks),
 		subscriptions: make(map[string]context.CancelFunc),
 		handlers:      make(map[string]CommandHandler),
 		startTime:     time.Now(),
@@ -212,6 +230,11 @@ func New(cfg *config.Config, log *logger.Logger) (*Agent, error) {
 	// out to both backends so a fallback switch doesn't drop the
 	// binding).
 	transportClient.SetHandler(agent.handleMessage)
+
+	if level == permissions.Monitor {
+		agent.reporter = report.New(poll.BuildBaseURL(cfg.Server.URL), Version, string(level),
+			authenticator, cfg.Monitor.Interval, agent.collectReport, log)
+	}
 
 	// Create IPC server if enabled
 	if cfg.IPC.Enabled {
@@ -397,6 +420,49 @@ func (a *Agent) registerHandlers() {
 	// capture, so plugins can probe instead of failing.
 	a.handlers[protocol.ActionGUICapabilities] = a.gui.HandleCapabilities
 	a.handlers[protocol.ActionGUIScreenshot] = a.gui.HandleScreenshot
+
+	// Security actions (permission level protect and up).
+	a.handlers[protocol.ActionFirewallStatus] = a.handleFirewallStatus
+	a.handlers[protocol.ActionFirewallAllowIP] = a.handleFirewallAllowIP
+	a.handlers[protocol.ActionFirewallDenyIP] = a.handleFirewallDenyIP
+	a.handlers[protocol.ActionFail2banStatus] = a.handleFail2banStatus
+	a.handlers[protocol.ActionFail2banBan] = a.handleFail2banBan
+	a.handlers[protocol.ActionFail2banUnban] = a.handleFail2banUnban
+	a.handlers[protocol.ActionCrowdsecDecisionsList] = a.handleCrowdsecDecisionsList
+	a.handlers[protocol.ActionCrowdsecBan] = a.handleCrowdsecBan
+	a.handlers[protocol.ActionCrowdsecUnban] = a.handleCrowdsecUnban
+	a.handlers[protocol.ActionCloudflareOriginLockStatus] = a.handleOriginLockStatus
+	a.handlers[protocol.ActionCloudflareOriginLockApply] = a.handleOriginLockApply
+	a.handlers[protocol.ActionCloudflareOriginLockRemove] = a.handleOriginLockRemove
+
+	// Defense in depth: never keep a handler above the configured level
+	// reachable, even if the central check in handleCommand were bypassed.
+	for action := range a.handlers {
+		if !permissions.Allowed(a.level, action) {
+			delete(a.handlers, action)
+		}
+	}
+}
+
+// collectReport gathers metrics and service checks for monitor reports.
+func (a *Agent) collectReport(ctx context.Context) (report.Metrics, []protocol.ServiceCheck) {
+	var m report.Metrics
+	var res servicecheck.Resources
+	if a.metrics != nil {
+		if sm, err := a.metrics.Collect(ctx); err == nil {
+			m = report.Metrics{CPUPercent: sm.CPUPercent, MemoryPercent: sm.MemoryPercent,
+				DiskPercent: sm.DiskPercent, UptimeSeconds: sm.Uptime, Load1: sm.LoadAvg1}
+			res = servicecheck.Resources{CPU: sm.CPUPercent, Memory: sm.MemoryPercent, Disk: sm.DiskPercent}
+		}
+	}
+	return m, a.checker.Run(ctx, res)
+}
+
+// reject records and logs a permission rejection and returns its message.
+func (a *Agent) reject(kind, what string, err error) {
+	a.log.Warn("Rejected by permission level", "kind", kind, "target", what, "level", a.level)
+	a.events.Append(events.KindInfo, events.SeverityWarn, err.Error(),
+		map[string]interface{}{"kind": kind, "target": what, "level": string(a.level)})
 }
 
 // Run starts the agent
@@ -437,18 +503,25 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 
-	// Start WebSocket connection in background
-	go func() {
-		if err := a.ws.Run(ctx); err != nil && err != context.Canceled {
-			a.log.Error("WebSocket error", "error", err)
-		}
-	}()
+	if a.level == permissions.Monitor {
+		// Monitor mode: no ws/poll command session, no discovery responder,
+		// only the signed outbound reporter.
+		a.log.Info("Permission level monitor: command channel disabled, reporting outbound only")
+		go a.reporter.Run(ctx)
+	} else {
+		// Start WebSocket connection in background
+		go func() {
+			if err := a.ws.Run(ctx); err != nil && err != context.Canceled {
+				a.log.Error("WebSocket error", "error", err)
+			}
+		}()
 
-	// Start heartbeat loop
-	go a.heartbeatLoop(ctx)
+		// Start heartbeat loop
+		go a.heartbeatLoop(ctx)
 
-	// Start discovery responder
-	go a.discoveryLoop(ctx)
+		// Start discovery responder
+		go a.discoveryLoop(ctx)
+	}
 
 	// Start the desktop-console metrics sampler (1 Hz ring buffer, 5 min)
 	if a.sampler != nil {
@@ -457,8 +530,10 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// Watch WS connection state and emit Activity events on transitions.
 	// Polling at 1 Hz is fine — the activity tab is a human-readable
-	// timeline, not a real-time monitor.
-	go a.connectionWatcher(ctx)
+	// timeline, not a real-time monitor. Monitor mode has no WS to watch.
+	if a.level != permissions.Monitor {
+		go a.connectionWatcher(ctx)
+	}
 
 	// Wait for context cancellation or restart request
 	select {
@@ -808,7 +883,8 @@ func (a *Agent) heartbeatLoop(ctx context.Context) {
 				continue
 			}
 
-			heartbeatMetrics := protocol.HeartbeatMetrics{}
+			heartbeatMetrics := protocol.HeartbeatMetrics{PermissionLevel: string(a.level)}
+			var res servicecheck.Resources
 
 			// Collect basic metrics for heartbeat
 			if a.metrics != nil {
@@ -817,8 +893,10 @@ func (a *Agent) heartbeatLoop(ctx context.Context) {
 					heartbeatMetrics.CPUPercent = sysMetrics.CPUPercent
 					heartbeatMetrics.MemoryPercent = sysMetrics.MemoryPercent
 					heartbeatMetrics.DiskPercent = sysMetrics.DiskPercent
+					res = servicecheck.Resources{CPU: sysMetrics.CPUPercent, Memory: sysMetrics.MemoryPercent, Disk: sysMetrics.DiskPercent}
 				}
 			}
+			heartbeatMetrics.ServiceChecks = a.checker.Run(ctx, res)
 
 			// Get container counts if Docker is available
 			if a.docker != nil {
@@ -872,6 +950,13 @@ func (a *Agent) handleCommand(data []byte) {
 		"action", cmd.Action,
 	)
 
+	// Central permission gate: runs before any handler lookup.
+	if err := permissions.Check(a.level, cmd.Action); err != nil {
+		a.reject("command", cmd.Action, err)
+		a.ws.SendCommandResult(cmd.ID, false, nil, err.Error(), 0)
+		return
+	}
+
 	// Find handler
 	handler, ok := a.handlers[cmd.Action]
 	if !ok {
@@ -921,6 +1006,13 @@ func (a *Agent) handleSubscribe(data []byte) {
 	var sub protocol.SubscribeMessage
 	if err := json.Unmarshal(data, &sub); err != nil {
 		a.log.Error("Failed to parse subscribe message", "error", err)
+		return
+	}
+
+	if !permissions.ChannelAllowed(a.level, sub.Channel) {
+		err := fmt.Errorf("subscription %s requires permission level full; this agent is configured as %s", sub.Channel, a.level)
+		a.reject("subscribe", sub.Channel, err)
+		a.ws.SendError("permission_denied", err.Error())
 		return
 	}
 
@@ -1671,6 +1763,12 @@ func (a *Agent) GetStatus() ipc.AgentStatus {
 		Uptime:     int64(time.Since(a.startTime).Seconds()),
 		Version:    Version,
 		Transport:  string(a.ws.Mode()),
+
+		PermissionLevel: string(a.level),
+	}
+	if a.reporter != nil {
+		status.Connected = a.reporter.IsConnected()
+		status.Transport = "report"
 	}
 
 	// Collect current metrics if available
