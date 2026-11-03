@@ -108,3 +108,24 @@ func TestSendOnceRejectsBadReply(t *testing.T) {
 		t.Fatal("must not be connected after a rejected report")
 	}
 }
+
+func TestConcurrentSendAndIsConnected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true,"interval_seconds":30}`))
+	}))
+	defer srv.Close()
+	log := logger.New(config.LoggingConfig{})
+	r := New(srv.URL, "t", "monitor", auth.New("a", "k", "s"), time.Minute,
+		func(context.Context) (Metrics, []protocol.ServiceCheck) { return Metrics{}, nil }, log)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 20; i++ {
+			_ = r.SendOnce(context.Background())
+		}
+	}()
+	for i := 0; i < 200; i++ {
+		_ = r.IsConnected()
+	}
+	<-done
+}
