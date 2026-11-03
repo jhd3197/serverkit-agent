@@ -79,10 +79,10 @@ type FeaturesConfig struct {
 
 // MetricsConfig controls metrics collection
 type MetricsConfig struct {
-	Enabled           bool          `yaml:"enabled"`
-	Interval          time.Duration `yaml:"interval"`
-	IncludePerCPU     bool          `yaml:"include_per_cpu"`
-	IncludeDockerStats bool         `yaml:"include_docker_stats"`
+	Enabled            bool          `yaml:"enabled"`
+	Interval           time.Duration `yaml:"interval"`
+	IncludePerCPU      bool          `yaml:"include_per_cpu"`
+	IncludeDockerStats bool          `yaml:"include_docker_stats"`
 }
 
 // DockerConfig holds Docker connection settings
@@ -137,12 +137,14 @@ type MonitorConfig struct {
 	Checks []MonitorCheck `yaml:"checks"`
 }
 
-// MonitorCheck is a custom service check. Type is "tcp" (Target host:port)
-// or "systemd" (Target unit name).
+// MonitorCheck is a custom service check. Type is "tcp" (Target host:port),
+// "http" (Target URL; 2xx/3xx is up) or "systemd" (Target unit name).
+// TimeoutSeconds bounds the check (default 5, clamped to 1..30).
 type MonitorCheck struct {
-	Name   string `yaml:"name"`
-	Type   string `yaml:"type"`
-	Target string `yaml:"target"`
+	Name           string `yaml:"name"`
+	Type           string `yaml:"type"`
+	Target         string `yaml:"target"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
 }
 
 // PermissionLevel returns the validated level, defaulting a missing value to
@@ -175,9 +177,9 @@ func Default() *Config {
 			Exec:       false,
 		},
 		Metrics: MetricsConfig{
-			Enabled:           true,
-			Interval:          10 * time.Second,
-			IncludePerCPU:     true,
+			Enabled:            true,
+			Interval:           10 * time.Second,
+			IncludePerCPU:      true,
 			IncludeDockerStats: true,
 		},
 		Docker: DockerConfig{
