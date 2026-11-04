@@ -43,7 +43,7 @@ func NewRegistration(log *logger.Logger) *Registration {
 }
 
 // Register registers the agent with a ServerKit instance
-func (r *Registration) Register(serverURL, token, name string) (*RegistrationResult, error) {
+func (r *Registration) Register(serverURL, token, name, level string) (*RegistrationResult, error) {
 	// Normalize server URL
 	serverURL = strings.TrimSuffix(serverURL, "/")
 
@@ -87,6 +87,9 @@ func (r *Registration) Register(serverURL, token, name string) (*RegistrationRes
 			"total_disk":       sysInfo.TotalDisk,
 		},
 		"agent_version": Version,
+	}
+	if level != "" {
+		reqBody["permission_level"] = level
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)

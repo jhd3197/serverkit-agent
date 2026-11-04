@@ -14,7 +14,15 @@ type Authenticator struct {
 	agentID   string
 	apiKey    string
 	apiSecret string
+	// level is the agent's permission level, advertised in auth payloads.
+	level string
 }
+
+// SetPermissionLevel records the level sent with every auth payload.
+func (a *Authenticator) SetPermissionLevel(level string) { a.level = level }
+
+// PermissionLevel returns the level set by SetPermissionLevel.
+func (a *Authenticator) PermissionLevel() string { return a.level }
 
 // New creates a new Authenticator
 func New(agentID, apiKey, apiSecret string) *Authenticator {

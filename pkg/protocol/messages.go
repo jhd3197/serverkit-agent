@@ -70,6 +70,8 @@ type AuthMessage struct {
 	AgentID      string `json:"agent_id"`
 	APIKeyPrefix string `json:"api_key_prefix"`
 	Nonce        string `json:"nonce,omitempty"` // Unique nonce for replay protection
+	// PermissionLevel is the agent's local level (monitor|protect|full).
+	PermissionLevel string `json:"permission_level,omitempty"`
 }
 
 // AuthResponse is sent by server after authentication
@@ -83,7 +85,19 @@ type AuthResponse struct {
 // HeartbeatMessage is sent periodically by agent
 type HeartbeatMessage struct {
 	Message
-	Metrics HeartbeatMetrics `json:"metrics"`
+	Metrics         HeartbeatMetrics `json:"metrics"`
+	PermissionLevel string           `json:"permission_level,omitempty"`
+	ServiceChecks   []ServiceCheck   `json:"service_checks,omitempty"`
+}
+
+// ServiceCheck is one service health result. Kind is one of web, php_fpm,
+// database, disk, cpu, memory, custom; Status is up, down, degraded or unknown.
+type ServiceCheck struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Status    string `json:"status"`
+	Detail    string `json:"detail"`
+	CheckedAt string `json:"checked_at"`
 }
 
 // HeartbeatMetrics contains basic system metrics
@@ -93,6 +107,11 @@ type HeartbeatMetrics struct {
 	DiskPercent      float64 `json:"disk_percent"`
 	ContainerCount   int     `json:"container_count"`
 	ContainerRunning int     `json:"container_running"`
+
+	// ServiceChecks and PermissionLevel ride along with the metrics into
+	// SendHeartbeat but are serialised on the heartbeat message itself.
+	ServiceChecks   []ServiceCheck `json:"-"`
+	PermissionLevel string         `json:"-"`
 }
 
 // HeartbeatAck is sent by server to acknowledge heartbeat
@@ -373,6 +392,23 @@ const (
 	// Linux-only (ufw / firewalld / iptables).
 	ActionFirewallAllowPort = "firewall:allow_port"
 	ActionFirewallDenyPort  = "firewall:deny_port"
+
+	// Security actions allowed at permission level "protect".
+	ActionFirewallStatus  = "firewall:status"
+	ActionFirewallAllowIP = "firewall:allow_ip"
+	ActionFirewallDenyIP  = "firewall:deny_ip"
+
+	ActionFail2banStatus = "fail2ban:status"
+	ActionFail2banBan    = "fail2ban:ban"
+	ActionFail2banUnban  = "fail2ban:unban"
+
+	ActionCrowdsecDecisionsList = "crowdsec:decisions:list"
+	ActionCrowdsecBan           = "crowdsec:ban"
+	ActionCrowdsecUnban         = "crowdsec:unban"
+
+	ActionCloudflareOriginLockStatus = "cloudflare:origin_lock:status"
+	ActionCloudflareOriginLockApply  = "cloudflare:origin_lock:apply"
+	ActionCloudflareOriginLockRemove = "cloudflare:origin_lock:remove"
 
 	// File actions
 	ActionFileRead  = "file:read"

@@ -384,5 +384,52 @@ else
 fi
 
 # --------------------------------------------------------------------------
+# T9 — permission levels: --level parsing, unknown value, reconfigure guard,
+# non-interactive default (full + warning), config level detection.
+# --------------------------------------------------------------------------
+lvl_args() { LEVEL=""; RECONFIGURE=false; ASSUME_YES=false; TOKEN=""; SERVER_URL=""; parse_args --token t --server https://x "$@"; }
+
+if out=$( (set -e; lvl_args --level Monitor; echo "$LEVEL") 2>&1 ) && [ "$out" = "monitor" ]; then
+    ok "--level is accepted and lower-cased"
+else bad "--level parse: [$out]"; fi
+
+if out=$( (set -e; lvl_args --level root) 2>&1 ); then bad "unknown --level accepted"
+else case "$out" in *"Unknown permission level"*) ok "unknown --level fails loudly" ;; *) bad "unknown level message: [$out]" ;; esac; fi
+
+if out=$( (set -e; lvl_args --level) 2>&1 ); then bad "--level without value accepted"
+else ok "--level without a value fails"; fi
+
+CONFIG_DIR="$WORK/etc"; mkdir -p "$CONFIG_DIR"
+printf 'agent:\n  id: abc\n' > "$CONFIG_DIR/config.yaml"
+if [ "$(installed_level)" = "full" ]; then ok "legacy config (no permissions key) reads as full"
+else bad "legacy level: [$(installed_level)]"; fi
+printf 'agent:\n  id: abc\npermissions:\n  level: protect\nupdate:\n  enabled: true\n' > "$CONFIG_DIR/config.yaml"
+if [ "$(installed_level)" = "protect" ]; then ok "installed_level reads permissions.level"
+else bad "installed_level: [$(installed_level)]"; fi
+
+if out=$( (set -e; lvl_args --level full; check_reconfigure) 2>&1 ); then bad "level change allowed without --reconfigure"
+else case "$out" in *"--reconfigure"*) ok "changing level without --reconfigure is refused" ;; *) bad "guard message: [$out]" ;; esac; fi
+
+if out=$( (set -e; lvl_args --level full --reconfigure --yes; check_reconfigure; echo "$LEVEL") 2>&1 ) && [ "$out" = "full" ]; then
+    ok "--reconfigure --yes changes the level without prompting"
+else bad "reconfigure --yes: [$out]"; fi
+
+if out=$( (set -e; lvl_args --level full --reconfigure; is_tty() { return 1; }; check_reconfigure) 2>&1 ); then bad "reconfigure confirmed without a typed answer"
+else ok "--reconfigure without --yes needs a typed confirmation"; fi
+
+if out=$( (set -e; lvl_args; check_reconfigure; echo "$LEVEL") 2>&1 ) && [ "$out" = "protect" ]; then
+    ok "re-run without --level keeps the installed level"
+else bad "keep level: [$out]"; fi
+
+rm -f "$CONFIG_DIR/config.yaml"
+if out=$( (set -e; lvl_args; is_tty() { return 1; }; resolve_level; echo "LEVEL=$LEVEL") 2>&1 ) && case "$out" in *"defaulting to FULL"*"LEVEL=full"*) true ;; *) false ;; esac; then
+    ok "non-interactive install without --level defaults to full with a warning"
+else bad "non-tty default: [$out]"; fi
+
+if out=$( (set -e; lvl_args; is_tty() { return 0; }; resolve_level; echo "LEVEL=$LEVEL") 2>&1 <<< "1" ) && case "$out" in *"LEVEL=monitor"*) true ;; *) false ;; esac; then
+    ok "interactive menu selection 1 => monitor"
+else bad "menu: [$out]"; fi
+
+# --------------------------------------------------------------------------
 printf '\n%d passed, %d failed, %d skipped\n\n' "$PASS" "$FAIL" "$SKIP"
 [ "$FAIL" -eq 0 ]
