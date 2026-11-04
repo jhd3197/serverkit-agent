@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -166,5 +168,69 @@ func TestNonLinuxSkipsSystemd(t *testing.T) {
 	run(t, c, Resources{})
 	if len(h.calls) != 0 {
 		t.Fatalf("exec called on non-linux: %v", h.calls)
+	}
+}
+
+func realChecker(custom ...config.MonitorCheck) *Checker {
+	c := New(custom)
+	c.OS = "darwin"
+	return c
+}
+
+func customStatus(t *testing.T, ck config.MonitorCheck) (string, string, time.Duration) {
+	t.Helper()
+	start := time.Now()
+	for _, sc := range realChecker(ck).custom(context.Background()) {
+		return sc.Status, sc.Detail, time.Since(start)
+	}
+	t.Fatal("no result")
+	return "", "", 0
+}
+
+func TestHTTPCheckTimesOut(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+		}
+	}))
+	defer srv.Close()
+	st, detail, el := customStatus(t, config.MonitorCheck{Name: "slow", Type: "http", Target: srv.URL, TimeoutSeconds: 1})
+	if st != StatusDown || detail != "timeout" || el > 2500*time.Millisecond {
+		t.Fatalf("got %s %q after %v", st, detail, el)
+	}
+}
+
+func TestHTTPCheckPasses(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer srv.Close()
+	if st, _, _ := customStatus(t, config.MonitorCheck{Name: "ok", Type: "http", Target: srv.URL}); st != StatusUp {
+		t.Fatalf("status %s", st)
+	}
+}
+
+func TestHungExecTimesOut(t *testing.T) {
+	c := &Checker{OS: "linux", Timeout: time.Second, Now: time.Now,
+		Exec: func(ctx context.Context, _ string, _ ...string) ([]byte, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}}
+	start := time.Now()
+	if _, ok := c.unitState(context.Background(), "nginx"); ok || time.Since(start) > 2500*time.Millisecond {
+		t.Fatalf("ok=%v after %v", ok, time.Since(start))
+	}
+}
+
+func TestTCPCheckPassesAndClampsTimeout(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0") // accepts via backlog, never responds
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if st, _, _ := customStatus(t, config.MonitorCheck{Name: "t", Type: "tcp", Target: ln.Addr().String()}); st != StatusUp {
+		t.Fatalf("status %s", st)
+	}
+	if clampTimeout(0) != DefaultTimeout || clampTimeout(time.Hour) != maxTimeout || clampTimeout(time.Millisecond) != minTimeout {
+		t.Fatal("clamp")
 	}
 }

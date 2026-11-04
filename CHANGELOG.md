@@ -11,6 +11,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Commands now run on a bounded worker pool (`security.max_concurrent_commands`,
+  default 8) instead of on the websocket read loop, so long commands no longer
+  stall pings and drop the connection. When all workers are busy the command
+  is answered immediately with an "agent busy" error. Socket writes are
+  serialized and shutdown cancels running commands.
+- Reconnect backoff is capped without overflow and jittered (+-20%).
+- Service checks are bounded by a timeout (default 5s, per-check
+  `timeout_seconds`, clamped 1-30s) and report `timeout` instead of hanging;
+  new `http` custom check type.
+- Data races on auth credentials and the monitor reporter state.
+- Log files are created `0600` (dirs `0750`); existing files are tightened.
+
 ### Added
 
 - **Permission levels** (`monitor` < `protect` < `full`), set in

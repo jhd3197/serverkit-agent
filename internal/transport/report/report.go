@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jhd3197/serverkit-agent/internal/auth"
@@ -66,7 +67,9 @@ type Reporter struct {
 	Interval time.Duration
 	Now      func() time.Time
 	NewNonce func() string
-	lastOK   time.Time
+	// mu guards lastOK and Interval, touched by Run and IsConnected callers.
+	mu     sync.Mutex
+	lastOK time.Time
 }
 
 // New builds a Reporter. baseURL is the panel's http(s) origin.
@@ -104,12 +107,17 @@ func clamp(d time.Duration) time.Duration {
 
 // IsConnected reports whether the last report was accepted recently.
 func (r *Reporter) IsConnected() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return !r.lastOK.IsZero() && r.Now().Sub(r.lastOK) < 3*r.Interval
 }
 
 // SendOnce collects and posts one report, adopting the interval the panel
 // suggests (clamped).
 func (r *Reporter) SendOnce(ctx context.Context) error {
+	r.mu.Lock()
+	interval := r.Interval
+	r.mu.Unlock()
 	m, checks := r.Collect(ctx)
 	if checks == nil {
 		checks = []protocol.ServiceCheck{}
@@ -117,7 +125,7 @@ func (r *Reporter) SendOnce(ctx context.Context) error {
 	now := r.Now()
 	body, err := json.Marshal(Body{
 		AgentID: r.AgentID, AgentVersion: r.Version, PermissionLevel: r.Level,
-		SentAt: now.UTC().Format(time.RFC3339), IntervalSeconds: int(r.Interval.Seconds()),
+		SentAt: now.UTC().Format(time.RFC3339), IntervalSeconds: int(interval.Seconds()),
 		Metrics: m, ServiceChecks: checks,
 	})
 	if err != nil {
@@ -152,6 +160,8 @@ func (r *Reporter) SendOnce(ctx context.Context) error {
 	if err := json.Unmarshal(raw, &reply); err != nil || !reply.OK {
 		return fmt.Errorf("report not acknowledged")
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.lastOK = now
 	if reply.IntervalSeconds > 0 {
 		r.Interval = clamp(time.Duration(reply.IntervalSeconds) * time.Second)
@@ -166,10 +176,13 @@ func (r *Reporter) Run(ctx context.Context) {
 		if err := r.SendOnce(ctx); err != nil {
 			r.Log.Warn("Monitor report failed", "error", err)
 		}
+		r.mu.Lock()
+		wait := r.Interval
+		r.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(r.Interval):
+		case <-time.After(wait):
 		}
 	}
 }

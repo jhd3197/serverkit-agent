@@ -6,8 +6,10 @@ package servicecheck
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -35,11 +37,26 @@ type Checker struct {
 	Custom []config.MonitorCheck
 	OS     string
 	Now    func() time.Time
+	// Timeout bounds each individual check; zero means DefaultTimeout.
+	Timeout time.Duration
+}
+
+const (
+	DefaultTimeout = 5 * time.Second
+	minTimeout     = time.Second
+	maxTimeout     = 30 * time.Second
+)
+
+func clampTimeout(d time.Duration) time.Duration {
+	if d <= 0 {
+		return DefaultTimeout
+	}
+	return min(max(d, minTimeout), maxTimeout)
 }
 
 // New returns a Checker wired to the real exec/dial.
 func New(custom []config.MonitorCheck) *Checker {
-	d := &net.Dialer{Timeout: 2 * time.Second}
+	d := &net.Dialer{}
 	return &Checker{
 		Exec: func(ctx context.Context, name string, args ...string) ([]byte, error) {
 			return exec.CommandContext(ctx, name, args...).Output()
@@ -101,6 +118,8 @@ type unitInfo struct{ id, load, active string }
 // unitState asks systemd about one unit. found is false if the unit does not
 // exist on this host.
 func (c *Checker) unitState(ctx context.Context, unit string) (u unitInfo, found bool) {
+	ctx, cancel := context.WithTimeout(ctx, clampTimeout(c.Timeout))
+	defer cancel()
 	out, err := c.Exec(ctx, "systemctl", "show", unit+".service", "-p", "Id", "-p", "LoadState", "-p", "ActiveState")
 	if err != nil && len(out) == 0 {
 		return u, false
@@ -123,6 +142,8 @@ func (c *Checker) unitState(ctx context.Context, unit string) (u unitInfo, found
 }
 
 func (c *Checker) listening(ctx context.Context, port string) bool {
+	ctx, cancel := context.WithTimeout(ctx, clampTimeout(c.Timeout))
+	defer cancel()
 	conn, err := c.Dial(ctx, "tcp", net.JoinHostPort("127.0.0.1", port))
 	if err != nil {
 		return false
@@ -157,6 +178,8 @@ func (c *Checker) web(ctx context.Context) []protocol.ServiceCheck {
 }
 
 func (c *Checker) phpFPM(ctx context.Context) []protocol.ServiceCheck {
+	ctx, cancel := context.WithTimeout(ctx, clampTimeout(c.Timeout))
+	defer cancel()
 	raw, err := c.Exec(ctx, "systemctl", "list-units", "--type=service", "--all", "--no-legend", "--plain", "php*-fpm.service")
 	if err != nil && len(raw) == 0 {
 		return nil
@@ -211,7 +234,15 @@ func (c *Checker) custom(ctx context.Context) []protocol.ServiceCheck {
 		if name == "" {
 			name = ck.Target
 		}
+		d := c.Timeout
+		if ck.TimeoutSeconds > 0 {
+			d = time.Duration(ck.TimeoutSeconds) * time.Second
+		}
+		ctx, cancel := context.WithTimeout(ctx, clampTimeout(d))
+		defer cancel() // released when custom returns; checks are few
 		switch strings.ToLower(ck.Type) {
+		case "http":
+			out = append(out, c.httpCheck(ctx, name, ck.Target))
 		case "tcp":
 			host, port, err := net.SplitHostPort(ck.Target)
 			if err != nil {
@@ -220,7 +251,7 @@ func (c *Checker) custom(ctx context.Context) []protocol.ServiceCheck {
 			}
 			conn, err := c.Dial(ctx, "tcp", net.JoinHostPort(host, port))
 			if err != nil {
-				out = append(out, c.mk(name, "custom", StatusDown, "connect failed"))
+				out = append(out, c.mk(name, "custom", StatusDown, failDetail(ctx, "connect failed")))
 				continue
 			}
 			conn.Close()
@@ -244,6 +275,30 @@ func (c *Checker) custom(ctx context.Context) []protocol.ServiceCheck {
 		}
 	}
 	return out
+}
+
+func failDetail(ctx context.Context, msg string) string {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return msg
+}
+
+func (c *Checker) httpCheck(ctx context.Context, name, target string) protocol.ServiceCheck {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil || (req.URL.Scheme != "http" && req.URL.Scheme != "https") {
+		return c.mk(name, "custom", StatusUnknown, "invalid http target "+target)
+	}
+	cl := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := cl.Do(req)
+	if err != nil {
+		return c.mk(name, "custom", StatusDown, failDetail(ctx, "request failed"))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return c.mk(name, "custom", StatusDown, fmt.Sprintf("HTTP %d", resp.StatusCode))
+	}
+	return c.mk(name, "custom", StatusUp, fmt.Sprintf("HTTP %d", resp.StatusCode))
 }
 
 // validUnit keeps operator-supplied unit names from being parsed as flags.

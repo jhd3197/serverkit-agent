@@ -30,10 +30,10 @@ import (
 	"github.com/jhd3197/serverkit-agent/internal/metrics"
 	"github.com/jhd3197/serverkit-agent/internal/permissions"
 	"github.com/jhd3197/serverkit-agent/internal/servicecheck"
-	"github.com/jhd3197/serverkit-agent/internal/transport/report"
 	"github.com/jhd3197/serverkit-agent/internal/terminal"
 	"github.com/jhd3197/serverkit-agent/internal/transport"
 	"github.com/jhd3197/serverkit-agent/internal/transport/poll"
+	"github.com/jhd3197/serverkit-agent/internal/transport/report"
 	"github.com/jhd3197/serverkit-agent/internal/updater"
 	"github.com/jhd3197/serverkit-agent/internal/wireguard"
 	"github.com/jhd3197/serverkit-agent/internal/ws"
@@ -102,8 +102,15 @@ type Agent struct {
 	systemdJSONOnce sync.Once
 
 	// Lifecycle tracking
-	startTime      time.Time
-	restartCh      chan struct{}
+	startTime time.Time
+	restartCh chan struct{}
+
+	// Command pool: cmdSlots bounds concurrent commands, cmdCtx is
+	// cancelled on shutdown and cmdWG lets cleanup wait for workers.
+	cmdSlots       chan struct{}
+	cmdCtx         context.Context
+	cmdCancel      context.CancelFunc
+	cmdWG          sync.WaitGroup
 	lastConnected  time.Time
 	reconnectCount int
 }
@@ -170,6 +177,7 @@ func New(cfg *config.Config, log *logger.Logger) (*Agent, error) {
 		wgKeyDir = filepath.Join(dataDir, "wireguard")
 	}
 
+	cmdCtx, cmdCancel := context.WithCancel(context.Background())
 	agent := &Agent{
 		cfg:           cfg,
 		log:           log,
@@ -196,6 +204,9 @@ func New(cfg *config.Config, log *logger.Logger) (*Agent, error) {
 		// Restart() uses a non-blocking send and returns "already in
 		// progress" if the slot is full.
 		restartCh: make(chan struct{}, 1),
+		cmdSlots:  make(chan struct{}, cmdPoolSize(cfg)),
+		cmdCtx:    cmdCtx,
+		cmdCancel: cmdCancel,
 	}
 
 	// Probe capabilities up-front so connectionWatcher can ship them on
@@ -925,7 +936,7 @@ func (a *Agent) handleMessage(msgType protocol.MessageType, data []byte) {
 
 	switch msgType {
 	case protocol.TypeCommand:
-		a.handleCommand(data)
+		a.submitCommand(data)
 	case protocol.TypeSubscribe:
 		a.handleSubscribe(data)
 	case protocol.TypeUnsubscribe:
@@ -935,6 +946,36 @@ func (a *Agent) handleMessage(msgType protocol.MessageType, data []byte) {
 	default:
 		a.log.Warn("Unknown message type", "type", msgType)
 	}
+}
+
+func cmdPoolSize(cfg *config.Config) int {
+	if n := cfg.Security.MaxConcurrentCommands; n > 0 {
+		return n
+	}
+	return 8
+}
+
+// submitCommand runs a command on a pool worker so the transport read loop
+// (pings, pongs) never blocks. With every slot busy it replies "agent busy"
+// instead of queueing.
+func (a *Agent) submitCommand(data []byte) {
+	select {
+	case a.cmdSlots <- struct{}{}:
+	default:
+		var cmd protocol.CommandMessage
+		if err := json.Unmarshal(data, &cmd); err != nil {
+			a.log.Error("Failed to parse command", "error", err)
+			return
+		}
+		a.log.Warn("Command rejected: agent busy", "id", cmd.ID, "action", cmd.Action)
+		a.ws.SendCommandResult(cmd.ID, false, nil, "agent busy: too many concurrent commands, retry later", 0)
+		return
+	}
+	a.cmdWG.Add(1)
+	go func() {
+		defer func() { <-a.cmdSlots; a.cmdWG.Done() }()
+		a.handleCommand(data)
+	}()
 }
 
 // handleCommand handles command messages
@@ -976,7 +1017,11 @@ func (a *Agent) handleCommand(data []byte) {
 		cmdTimeout = maxTimeout
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	parent := a.cmdCtx
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, cmdTimeout)
 	defer cancel()
 
 	result, err := handler(ctx, cmd.Params)
@@ -1201,6 +1246,16 @@ func (a *Agent) saveCredentials(apiKey, apiSecret string) error {
 
 func (a *Agent) cleanup() {
 	a.log.Info("Cleaning up...")
+
+	// Cancel in-flight commands and give workers a moment to report.
+	a.cmdCancel()
+	done := make(chan struct{})
+	go func() { a.cmdWG.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		a.log.Warn("Timed out waiting for running commands to stop")
+	}
 
 	// Cancel all subscriptions
 	a.subMu.Lock()

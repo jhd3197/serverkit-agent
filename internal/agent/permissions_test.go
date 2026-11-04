@@ -70,6 +70,8 @@ func newLevelAgent(t *testing.T, level permissions.Level) (*Agent, *fakeTranspor
 		subscriptions: map[string]context.CancelFunc{}, handlers: map[string]CommandHandler{},
 		checker: servicecheck.New(nil), restartCh: make(chan struct{}, 1),
 	}
+	a.cmdSlots = make(chan struct{}, 8)
+	a.cmdCtx, a.cmdCancel = context.WithCancel(context.Background())
 	a.registerHandlers()
 	return a, ft
 }
