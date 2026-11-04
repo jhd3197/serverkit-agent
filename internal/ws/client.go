@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,21 +35,23 @@ type MessageHandler = transport.MessageHandler
 
 // Client is a Socket.IO client with auto-reconnect
 type Client struct {
-	cfg           config.ServerConfig
-	auth          *auth.Authenticator
-	log           *logger.Logger
-	conn          *websocket.Conn
-	handler       MessageHandler
-	session       *auth.SessionToken
+	cfg     config.ServerConfig
+	auth    *auth.Authenticator
+	log     *logger.Logger
+	conn    *websocket.Conn
+	handler MessageHandler
+	session *auth.SessionToken
 
-	mu            sync.RWMutex
+	mu sync.RWMutex
+	// writeMu serializes writes: gorilla allows one concurrent writer.
+	writeMu       sync.Mutex
 	connected     bool
 	reconnecting  bool
 	lastErr       error
 	everConnected bool
 
-	sendCh        chan []byte
-	doneCh        chan struct{}
+	sendCh chan []byte
+	doneCh chan struct{}
 
 	reconnectCount int
 
@@ -221,10 +224,10 @@ func (c *Client) handleEngineIOOpen() error {
 
 	// Parse the JSON payload
 	var openData struct {
-		SID          string `json:"sid"`
+		SID          string   `json:"sid"`
 		Upgrades     []string `json:"upgrades"`
-		PingInterval int    `json:"pingInterval"`
-		PingTimeout  int    `json:"pingTimeout"`
+		PingInterval int      `json:"pingInterval"`
+		PingTimeout  int      `json:"pingTimeout"`
 	}
 	if err := json.Unmarshal([]byte(msgStr[1:]), &openData); err != nil {
 		return fmt.Errorf("failed to parse OPEN data: %w", err)
@@ -249,7 +252,7 @@ func (c *Client) connectNamespace() error {
 	connectMsg := fmt.Sprintf("40%s,", c.namespace)
 	c.log.Debug("Connecting to namespace", "namespace", c.namespace, "packet", connectMsg)
 
-	if err := c.conn.WriteMessage(websocket.TextMessage, []byte(connectMsg)); err != nil {
+	if err := c.writeText([]byte(connectMsg)); err != nil {
 		return fmt.Errorf("failed to send CONNECT: %w", err)
 	}
 
@@ -295,6 +298,9 @@ func (c *Client) authenticate() error {
 		"timestamp":      timestamp,
 		"signature":      signature,
 	}
+	if lvl := c.auth.PermissionLevel(); lvl != "" {
+		authData["permission_level"] = lvl
+	}
 
 	c.log.Debug("Sending authentication event")
 
@@ -316,7 +322,7 @@ func (c *Client) authenticate() error {
 
 		// Handle Engine.IO ping during auth
 		if msgStr == "2" {
-			c.conn.WriteMessage(websocket.TextMessage, []byte("3"))
+			c.writeText([]byte("3"))
 			continue
 		}
 
@@ -373,7 +379,7 @@ func (c *Client) emitEvent(event string, data interface{}) error {
 	// Build Socket.IO EVENT: 42/namespace,["event",data]
 	eventJSON := fmt.Sprintf(`42%s,["%s",%s]`, c.namespace, event, string(dataBytes))
 
-	return c.conn.WriteMessage(websocket.TextMessage, []byte(eventJSON))
+	return c.writeText([]byte(eventJSON))
 }
 
 // parseEvent parses a Socket.IO EVENT packet and returns event name + data
@@ -569,7 +575,7 @@ func (c *Client) readLoop(ctx context.Context) error {
 
 		// Handle Engine.IO PING (server sends "2", we respond "3")
 		if msgStr == "2" {
-			if err := c.conn.WriteMessage(websocket.TextMessage, []byte("3")); err != nil {
+			if err := c.writeText([]byte("3")); err != nil {
 				return fmt.Errorf("failed to send pong: %w", err)
 			}
 			c.log.Debug("Responded to Engine.IO ping")
@@ -636,7 +642,7 @@ func (c *Client) writeLoop(ctx context.Context) error {
 			eventName := string(base.Type)
 			eventJSON := fmt.Sprintf(`42%s,["%s",%s]`, c.namespace, eventName, string(msg))
 
-			if err := c.conn.WriteMessage(websocket.TextMessage, []byte(eventJSON)); err != nil {
+			if err := c.writeText([]byte(eventJSON)); err != nil {
 				return fmt.Errorf("write error: %w", err)
 			}
 		}
@@ -680,6 +686,31 @@ func (c *Client) pingLoop(ctx context.Context) error {
 	}
 }
 
+// writeText sends one text frame; every data write goes through here.
+func (c *Client) writeText(b []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.conn.WriteMessage(websocket.TextMessage, b)
+}
+
+// nextBackoff returns the reconnect delay for the given 1-based attempt:
+// base*2^(attempt-1) capped at max, then +-20% jitter (rnd in [0,1)).
+func nextBackoff(attempt int, base, max time.Duration, rnd func() float64) time.Duration {
+	if base <= 0 {
+		base = time.Second
+	}
+	d := max
+	if shift := attempt - 1; shift < 0 {
+		d = base
+	} else if shift < 32 && base <= max>>uint(shift) {
+		d = base << uint(shift)
+	}
+	if d > max {
+		d = max
+	}
+	return time.Duration(float64(d) * (0.8 + 0.4*rnd()))
+}
+
 // handleReconnect implements exponential backoff reconnection
 func (c *Client) handleReconnect(ctx context.Context) {
 	c.mu.Lock()
@@ -689,10 +720,7 @@ func (c *Client) handleReconnect(ctx context.Context) {
 	c.mu.Unlock()
 
 	// Calculate backoff duration
-	backoff := c.cfg.ReconnectInterval * time.Duration(1<<uint(count-1))
-	if backoff > c.cfg.MaxReconnectInterval {
-		backoff = c.cfg.MaxReconnectInterval
-	}
+	backoff := nextBackoff(count, c.cfg.ReconnectInterval, c.cfg.MaxReconnectInterval, rand.Float64)
 
 	c.log.Info("Reconnecting",
 		"attempt", count,
@@ -735,8 +763,10 @@ func (c *Client) Send(msg interface{}) error {
 // SendHeartbeat sends a heartbeat message
 func (c *Client) SendHeartbeat(metrics protocol.HeartbeatMetrics) error {
 	msg := protocol.HeartbeatMessage{
-		Message: protocol.NewMessage(protocol.TypeHeartbeat, auth.GenerateNonce()),
-		Metrics: metrics,
+		Message:         protocol.NewMessage(protocol.TypeHeartbeat, auth.GenerateNonce()),
+		Metrics:         metrics,
+		PermissionLevel: metrics.PermissionLevel,
+		ServiceChecks:   metrics.ServiceChecks,
 	}
 	return c.Send(msg)
 }
@@ -802,10 +832,11 @@ func (c *Client) Close() error {
 
 	if c.conn != nil {
 		// Send close message
-		c.conn.WriteMessage(
-			websocket.CloseMessage,
+		c.writeMu.Lock()
+		_ = c.conn.WriteControl(websocket.CloseMessage,
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-		)
+			time.Now().Add(time.Second))
+		c.writeMu.Unlock()
 		c.conn.Close()
 		c.conn = nil
 	}

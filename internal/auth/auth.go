@@ -6,14 +6,33 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 )
 
 // Authenticator handles HMAC-based authentication
 type Authenticator struct {
+	// mu guards apiKey, apiSecret and level, which can be swapped at runtime.
+	mu        sync.RWMutex
 	agentID   string
 	apiKey    string
 	apiSecret string
+	// level is the agent's permission level, advertised in auth payloads.
+	level string
+}
+
+// SetPermissionLevel records the level sent with every auth payload.
+func (a *Authenticator) SetPermissionLevel(level string) {
+	a.mu.Lock()
+	a.level = level
+	a.mu.Unlock()
+}
+
+// PermissionLevel returns the level set by SetPermissionLevel.
+func (a *Authenticator) PermissionLevel() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.level
 }
 
 // New creates a new Authenticator
@@ -41,17 +60,23 @@ func (a *Authenticator) SignMessageWithNonce(timestamp int64, nonce string) stri
 
 // UpdateCredentials updates the API credentials
 func (a *Authenticator) UpdateCredentials(apiKey, apiSecret string) {
+	a.mu.Lock()
 	a.apiKey = apiKey
 	a.apiSecret = apiSecret
+	a.mu.Unlock()
 }
 
 // GetAPIKey returns the full API key
 func (a *Authenticator) GetAPIKey() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.apiKey
 }
 
 // GetAPISecret returns the API secret
 func (a *Authenticator) GetAPISecret() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.apiSecret
 }
 
@@ -87,6 +112,8 @@ func (a *Authenticator) VerifyTimestamp(timestamp int64, maxAgeSeconds int64) bo
 // dormant bug only exposed once the polling fallback transport made
 // auth failures visible (WS would just retry silently forever).
 func (a *Authenticator) GetAPIKeyPrefix() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	if len(a.apiKey) < 12 {
 		return a.apiKey
 	}
@@ -99,7 +126,7 @@ func (a *Authenticator) AgentID() string {
 }
 
 func (a *Authenticator) computeHMAC(message string) string {
-	h := hmac.New(sha256.New, []byte(a.apiSecret))
+	h := hmac.New(sha256.New, []byte(a.GetAPISecret()))
 	h.Write([]byte(message))
 	return hex.EncodeToString(h.Sum(nil))
 }

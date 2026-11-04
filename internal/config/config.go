@@ -11,7 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
+
+	"github.com/jhd3197/serverkit-agent/internal/permissions"
 
 	"gopkg.in/yaml.v3"
 )
@@ -28,6 +31,9 @@ type Config struct {
 	Logging  LoggingConfig  `yaml:"logging"`
 	Update   UpdateConfig   `yaml:"update"`
 	IPC      IPCConfig      `yaml:"ipc"`
+
+	Permissions PermissionsConfig `yaml:"permissions"`
+	Monitor     MonitorConfig     `yaml:"monitor"`
 
 	// SourcePath is the resolved path this config was loaded from (set by
 	// Load, not part of the YAML). Used to self-report the agent's config
@@ -73,10 +79,10 @@ type FeaturesConfig struct {
 
 // MetricsConfig controls metrics collection
 type MetricsConfig struct {
-	Enabled           bool          `yaml:"enabled"`
-	Interval          time.Duration `yaml:"interval"`
-	IncludePerCPU     bool          `yaml:"include_per_cpu"`
-	IncludeDockerStats bool         `yaml:"include_docker_stats"`
+	Enabled            bool          `yaml:"enabled"`
+	Interval           time.Duration `yaml:"interval"`
+	IncludePerCPU      bool          `yaml:"include_per_cpu"`
+	IncludeDockerStats bool          `yaml:"include_docker_stats"`
 }
 
 // DockerConfig holds Docker connection settings
@@ -90,6 +96,9 @@ type SecurityConfig struct {
 	AllowedPaths    []string      `yaml:"allowed_paths"`
 	BlockedCommands []string      `yaml:"blocked_commands"`
 	MaxExecTimeout  time.Duration `yaml:"max_exec_timeout"`
+	// MaxConcurrentCommands bounds commands running at once; extra
+	// commands are rejected with "agent busy". Default 8.
+	MaxConcurrentCommands int `yaml:"max_concurrent_commands"`
 }
 
 // LoggingConfig holds logging settings
@@ -116,6 +125,41 @@ type IPCConfig struct {
 	Address string `yaml:"address"`
 }
 
+// PermissionsConfig holds the agent's local permission level. It is read only
+// from this file at startup; the panel can never change it.
+type PermissionsConfig struct {
+	// Level is monitor|protect|full. Empty (legacy installs) means full.
+	Level string `yaml:"level"`
+}
+
+// MonitorConfig tunes monitor mode's outbound reporter and service checks.
+type MonitorConfig struct {
+	// Interval between reports; the panel may suggest another in its reply.
+	Interval time.Duration `yaml:"interval"`
+	// Checks are optional custom checks added to the auto-detected ones.
+	Checks []MonitorCheck `yaml:"checks"`
+}
+
+// MonitorCheck is a custom service check. Type is "tcp" (Target host:port),
+// "http" (Target URL; 2xx/3xx is up) or "systemd" (Target unit name).
+// TimeoutSeconds bounds the check (default 5, clamped to 1..30).
+type MonitorCheck struct {
+	Name           string `yaml:"name"`
+	Type           string `yaml:"type"`
+	Target         string `yaml:"target"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
+}
+
+// PermissionLevel returns the validated level, defaulting a missing value to
+// full for backward compatibility. An unrecognised value is an error so the
+// agent fails closed instead of guessing.
+func (c *Config) PermissionLevel() (permissions.Level, error) {
+	if strings.TrimSpace(c.Permissions.Level) == "" {
+		return permissions.Default, nil
+	}
+	return permissions.Parse(c.Permissions.Level)
+}
+
 // Default returns default configuration
 func Default() *Config {
 	return &Config{
@@ -136,9 +180,9 @@ func Default() *Config {
 			Exec:       false,
 		},
 		Metrics: MetricsConfig{
-			Enabled:           true,
-			Interval:          10 * time.Second,
-			IncludePerCPU:     true,
+			Enabled:            true,
+			Interval:           10 * time.Second,
+			IncludePerCPU:      true,
 			IncludeDockerStats: true,
 		},
 		Docker: DockerConfig{
@@ -149,6 +193,8 @@ func Default() *Config {
 			AllowedPaths:    defaultAllowedPaths(),
 			BlockedCommands: []string{},
 			MaxExecTimeout:  5 * time.Minute,
+
+			MaxConcurrentCommands: 8,
 		},
 		Logging: LoggingConfig{
 			Level:      "info",
@@ -168,6 +214,7 @@ func Default() *Config {
 			Port:    19780,
 			Address: "127.0.0.1",
 		},
+		Monitor: MonitorConfig{Interval: 60 * time.Second},
 	}
 }
 

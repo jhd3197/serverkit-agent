@@ -184,7 +184,7 @@ case "$1" in
         echo ""
         echo "To complete setup:"
         echo "  1. Register the agent (runs as the service account):"
-        echo "     sudo -u serverkit-agent serverkit-agent register --token YOUR_TOKEN --server https://your-serverkit.com"
+        echo "     sudo -u serverkit-agent serverkit-agent register --token YOUR_TOKEN --server https://your-serverkit.com --level monitor|protect|full"
         echo ""
         echo "  2. Start the service:"
         echo "     sudo systemctl start serverkit-agent"

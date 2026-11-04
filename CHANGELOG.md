@@ -11,6 +11,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Commands now run on a bounded worker pool (`security.max_concurrent_commands`,
+  default 8) instead of on the websocket read loop, so long commands no longer
+  stall pings and drop the connection. When all workers are busy the command
+  is answered immediately with an "agent busy" error. Socket writes are
+  serialized and shutdown cancels running commands.
+- Reconnect backoff is capped without overflow and jittered (+-20%).
+- Service checks are bounded by a timeout (default 5s, per-check
+  `timeout_seconds`, clamped 1-30s) and report `timeout` instead of hanging;
+  new `http` custom check type.
+- Data races on auth credentials and the monitor reporter state.
+- Log files are created `0600` (dirs `0750`); existing files are tightened.
+
+### Added
+
+- **Permission levels** (`monitor` < `protect` < `full`), set in
+  `permissions.level` of `config.yaml` and changeable only locally. A config
+  without the key keeps today's behaviour (`full`).
+  - `monitor`: report-only. No websocket/poll session, no subscriptions, no
+    terminal; the agent only sends signed `POST /api/v1/agent/report`
+    requests (HMAC-SHA256 over `timestamp.nonce.sha256(body)`, random nonce
+    per request) with metrics and service checks.
+  - `protect`: only security actions run: `firewall:allow_port`,
+    `firewall:deny_port`, `firewall:status`, `firewall:allow_ip`,
+    `firewall:deny_ip`, `fail2ban:status|ban|unban`,
+    `crowdsec:decisions:list|ban|unban`,
+    `cloudflare:origin_lock:status|apply|remove`. Everything else is
+    rejected (and recorded in the Activity log) before any handler runs;
+    handlers above the level are not even registered.
+- New security handlers (fixed argv, no shell, strict input validation). The
+  Cloudflare origin lock restricts 80/443 to Cloudflare's published ranges via
+  `ufw` (embedded fallback list, live refresh when reachable), never touches
+  SSH, and refuses when `ufw` is missing or inactive.
+- Service checks (web server, PHP-FPM, MySQL/MariaDB/PostgreSQL, disk/CPU/
+  memory thresholds, optional `monitor.checks`) sent with heartbeats and
+  monitor reports. Registration, auth and heartbeat payloads carry
+  `permission_level`.
+- `serverkit-agent permissions show|set <level>` (root, typed confirmation or
+  `--yes`, restarts the service); `register --level`; `install.sh --level`
+  / `--reconfigure` / `--yes` and `install.ps1 -Level` / `-Reconfigure` /
+  `-Yes`. The level appears in `status` and the IPC status.
+
+### Changed
+
+- Installing without `--level` shows a menu on a terminal; non-interactive
+  installs default to `full` with a loud warning. Re-running the installer
+  with a different level on an installed agent is refused without
+  `--reconfigure`.
+
 ## [1.3.0] - 2026-10-26
 
 ### Added

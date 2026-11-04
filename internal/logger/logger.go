@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"github.com/jhd3197/serverkit-agent/internal/config"
@@ -83,15 +84,19 @@ func New(cfg config.LoggingConfig) *Logger {
 	var rotator *lumberjack.Logger
 	if cfg.File != "" {
 		dir := filepath.Dir(cfg.File)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0750); err != nil {
 			initErrs = append(initErrs, fmt.Sprintf("MkdirAll(%q): %v", dir, err))
 		} else {
 			// Probe file writability before handing the path to lumberjack
 			// so a permission error gets surfaced at boot instead of
 			// silently disabling file logging.
-			if f, perr := os.OpenFile(cfg.File, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); perr != nil {
+			if f, perr := os.OpenFile(cfg.File, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600); perr != nil {
 				initErrs = append(initErrs, fmt.Sprintf("OpenFile(%q): %v", cfg.File, perr))
 			} else {
+				// OpenFile's mode only applies on creation; tighten older files.
+				if fi, serr := f.Stat(); serr == nil && runtime.GOOS != "windows" && fi.Mode().Perm()&^0600 != 0 {
+					_ = f.Chmod(0600)
+				}
 				_ = f.Close()
 				rotator = &lumberjack.Logger{
 					Filename:   cfg.File,

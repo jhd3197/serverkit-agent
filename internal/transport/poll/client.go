@@ -112,6 +112,9 @@ func buildBaseURL(raw string) string {
 	return strings.TrimRight(u.String(), "/")
 }
 
+// BuildBaseURL is the exported form of buildBaseURL for outbound-only callers.
+func BuildBaseURL(raw string) string { return buildBaseURL(raw) }
+
 func (c *Client) SetHandler(h transport.MessageHandler) { c.handler = h }
 func (c *Client) Mode() transport.Mode                  { return transport.ModePoll }
 func (c *Client) Session() *auth.SessionToken {
@@ -180,6 +183,9 @@ func (c *Client) connect(ctx context.Context) error {
 		"timestamp":      timestamp,
 		"nonce":          nonce,
 	}
+	if lvl := c.auth.PermissionLevel(); lvl != "" {
+		body["permission_level"] = lvl
+	}
 	var resp struct {
 		Success      bool   `json:"success"`
 		SessionToken string `json:"session_token"`
@@ -246,6 +252,8 @@ func (c *Client) pollOnce(ctx context.Context) error {
 	body := map[string]interface{}{}
 	if c.hbMetrics != nil {
 		body["metrics"] = c.hbMetrics
+		body["permission_level"] = c.hbMetrics.PermissionLevel
+		body["service_checks"] = c.hbMetrics.ServiceChecks
 	}
 	if c.sysInfo != nil {
 		body["system_info"] = c.sysInfo

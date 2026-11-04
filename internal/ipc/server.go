@@ -45,6 +45,8 @@ type AgentStatus struct {
 	// forced a fallback to the REST polling transport. UI uses this to
 	// surface a "limited mode" badge — streams are unavailable in poll.
 	Transport   string  `json:"transport,omitempty"`
+	// PermissionLevel is monitor|protect|full (local config, read-only here).
+	PermissionLevel string `json:"permission_level,omitempty"`
 	CPUPercent  float64 `json:"cpu_percent"`
 	MemPercent  float64 `json:"mem_percent"`
 	DiskPercent float64 `json:"disk_percent"`
